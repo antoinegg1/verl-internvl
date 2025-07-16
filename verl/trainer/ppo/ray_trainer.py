@@ -1296,8 +1296,11 @@ class RayPPOTrainer:
                     if rollout_data_dir:
                         with marked_timer("dump_rollout_generations", timing_raw, color="green"):
                             print(batch.batch.keys())
-                            inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
-                            outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
+                            inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=False)
+                            inputs = [query.replace("<IMG_CONTEXT>", "") for query in inputs]
+                            inputs = [query.replace("<|endoftext|>", "") for query in inputs]
+                            outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=False)
+                            outputs = [response.replace("<|endoftext|>", "") for response in outputs]
                             scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
                             self._dump_generations(
                                 inputs=inputs,

@@ -97,7 +97,7 @@ class ModelMergerConfig:
 class BaseModelMerger(ABC):
     def __init__(self, config: ModelMergerConfig):
         self.config = config
-        self.hf_model_config_path = config.hf_model_config_path
+        self.hf_model_config_path = os.path.join(config.hf_model_config_path, "huggingface")
 
         if config.hf_model_path:
             print(
@@ -105,12 +105,14 @@ class BaseModelMerger(ABC):
             )
             self.hf_model_config_path = config.hf_model_path
 
-        self.model_config = AutoConfig.from_pretrained(self.hf_model_config_path)
+        self.model_config = AutoConfig.from_pretrained(self.hf_model_config_path, trust_remote_code=True)
+        print(f"{self.model_config=}")
+        print(f"{self.hf_model_config_path=}")
 
     def get_transformers_auto_model_class(self):
         if "ForTokenClassification" in self.model_config.architectures[0]:
             return AutoModelForTokenClassification
-        elif "ForCausalLM" in self.model_config.architectures[0]:
+        elif "ForCausalLM" in self.model_config.architectures[0] or "InternVL" in self.model_config.architectures[0]:
             return AutoModelForCausalLM
         elif "ForConditionalGeneration" in self.model_config.architectures[0]:
             return AutoModelForVision2Seq
@@ -126,7 +128,7 @@ class BaseModelMerger(ABC):
         """
         if model.can_generate():
             try:
-                model.generation_config = GenerationConfig.from_pretrained(self.hf_model_config_path)
+                model.generation_config = GenerationConfig.from_pretrained(self.hf_model_config_path, trust_remote_code=True)
             except OSError:
                 print(
                     f"Warning: Generation config file not found in {self.hf_model_config_path}, using a generation config created from the model config."
@@ -193,7 +195,7 @@ class BaseModelMerger(ABC):
     def save_hf_model_and_tokenizer(self, state_dict: dict[str, torch.Tensor]):
         auto_model_class = self.get_transformers_auto_model_class()
         with init_empty_weights():
-            model = auto_model_class.from_config(self.model_config, torch_dtype=torch.bfloat16)
+            model = auto_model_class.from_config(self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=True)
         model.to_empty(device="cpu")
         model = self.patch_model_generation_config(model)
 
@@ -206,8 +208,8 @@ class BaseModelMerger(ABC):
         del state_dict
         del model
 
-        processor = hf_processor(self.hf_model_config_path)
-        tokenizer = hf_tokenizer(self.hf_model_config_path)
+        processor = hf_processor(self.hf_model_config_path, trust_remote_code=True)
+        tokenizer = hf_tokenizer(self.hf_model_config_path, trust_remote_code=True)
         if processor is not None:
             print(f"Saving processor to {self.config.target_dir}")
             processor.save_pretrained(self.config.target_dir)
@@ -381,7 +383,7 @@ class FSDPModelMerger(BaseModelMerger):
     def _test_state_dict(self, state_dict: dict[str, torch.Tensor]):
         auto_model_class = self.get_transformers_auto_model_class()
 
-        hf_model = auto_model_class.from_pretrained(self.config.test_hf_dir, torch_dtype=torch.bfloat16)
+        hf_model = auto_model_class.from_pretrained(self.config.test_hf_dir, torch_dtype=torch.bfloat16, trust_remote_code=True)
         hf_state_dict = hf_model.state_dict()
         del hf_model
 
