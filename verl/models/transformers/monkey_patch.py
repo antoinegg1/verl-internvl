@@ -110,7 +110,7 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
-def patch_vlm_for_ulysses_input_slicing(model_class: type):
+def patch_vlm_for_ulysses_input_slicing(model_class: type, slice_position_ids=False):
     """
     Applies a monkey patch to the forward method of a given model class
     to enable Ulysses sequence parallelism input slicing.
@@ -119,6 +119,7 @@ def patch_vlm_for_ulysses_input_slicing(model_class: type):
     def _create_ulysses_wrapped_decoder_forward(original_forward):
         def ulysses_wrapped_decoder_forward(self, *args, **kwargs):
             inputs_embeds = kwargs.get("inputs_embeds")
+            position_ids = kwargs.get("position_ids")
             call_kwargs = kwargs.copy()
 
             current_ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
@@ -130,6 +131,8 @@ def patch_vlm_for_ulysses_input_slicing(model_class: type):
             )
             if slice_now:
                 call_kwargs["inputs_embeds"] = slice_input_tensor(inputs_embeds, dim=1, padding=False)
+                if slice_position_ids and position_ids is not None:
+                    call_kwargs["position_ids"] = slice_input_tensor(position_ids, dim=1, padding=False)
                 self._needs_initial_slice = False
             try:
                 return original_forward(self, *args, **call_kwargs)
@@ -309,6 +312,18 @@ def apply_monkey_patch(
             print("Not support fused kernels for KimiVL")
 
         return
+
+    elif model.config.model_type in ["internvl_chat", "internvl"]:
+        if ulysses_sp_size > 1:
+            if hasattr(module, "Qwen2ForCausalLM"):
+                patch_vlm_for_ulysses_input_slicing(module.Qwen2ForCausalLM, slice_position_ids=True)
+            if hasattr(module, "Qwen3ForCausalLM"):
+                patch_vlm_for_ulysses_input_slicing(module.Qwen3ForCausalLM, slice_position_ids=True)
+            if hasattr(module, "Qwen3MoeForCausalLM"):
+                patch_vlm_for_ulysses_input_slicing(module.Qwen3MoeForCausalLM, slice_position_ids=True)
+
+        if use_fused_kernels:
+            print("Not support fused kernels for InternVL")
 
     # transformers<=4.47.1
     if use_remove_padding or ulysses_sp_size > 1:

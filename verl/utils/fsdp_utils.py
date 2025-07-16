@@ -91,7 +91,7 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
     if re.match("internvl", module.__class__.__name__, re.IGNORECASE):
         update_cls_names_to_wrap = []
         for mod in default_transformer_cls_names_to_wrap:
-            if mod != "LlamaDecoderLayer":
+            if mod != "LlamaDecoderLayer" and mod != "InternLM2DecoderLayer":
                 update_cls_names_to_wrap.append(mod)
         default_transformer_cls_names_to_wrap = update_cls_names_to_wrap
     elif re.match("gemma3", module.__class__.__name__, re.IGNORECASE):
@@ -131,7 +131,7 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
         for layer_class in fsdp_transformer_layer_cls_to_wrap:
             transformer_cls = get_module_class_from_name(module, layer_class)
             if transformer_cls is None:
-                raise Exception("Could not find the transformer layer class to wrap in the model.")
+                raise Exception(f"Could not find the transformer layer class to wrap in the model. {layer_class=}, {fsdp_transformer_layer_cls_to_wrap=}")
             else:
                 transformer_cls_to_wrap.add(transformer_cls)
 

@@ -59,6 +59,7 @@ eg.
 class InternVLPreprocessor(BasicPreprocessor):
     def __init__(self, processor, image_key="image", video_key="video", **kwargs):
         super().__init__(processor, image_key=image_key, video_key=video_key)
+        self.max_patches = self.processor.image_processor.max_patches
 
     def process_image(self, image, **kwargs):
         if isinstance(image, Image.Image):
@@ -130,6 +131,12 @@ class InternVLPreprocessor(BasicPreprocessor):
         if "<image>" in raw_prompt_convert:
             #In older version the fake_image_token will be used
             raw_prompt_convert=raw_prompt_convert.replace("<image>", "<IMG_CONTEXT>")
+
+        if len(images) > 1:
+            self.processor.image_processor.max_patches = max(1, self.max_patches // len(images))
+        else:
+            self.processor.image_processor.max_patches = self.max_patches
+
         model_inputs = self.processor(text=[raw_prompt_convert], images=images, videos=videos, return_tensors="pt")
         input_ids = model_inputs.pop("input_ids")
         attention_mask = model_inputs.pop("attention_mask")
