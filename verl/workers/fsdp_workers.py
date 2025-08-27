@@ -17,6 +17,7 @@ The main entry point to run the PPO algorithm
 
 import re
 import json
+import datetime
 import logging
 import os
 import warnings
@@ -122,6 +123,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 rank=rank,
                 world_size=world_size,
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
+                timeout=datetime.timedelta(hours=2),
             )
 
         # build device mesh for FSDP
