@@ -8,7 +8,7 @@
 </div>
 
 [\[🔥 InternVL3.5 Report\]](https://huggingface.co/papers/2508.18265)
-[\[🗨️ Chat Demo\]]()
+[\[🗨️ Chat Demo\]](https://chat.intern-ai.org.cn/)
 
 ![image/jpg](https://huggingface.co/OpenGVLab/InternVL3_5-241B-A28B/resolve/main/images/performance.jpg)
 
@@ -27,3 +27,60 @@ Based on this codebase, the InternVL3.5 series across all model scales achieve a
 ![image/jpg](https://huggingface.co/OpenGVLab/InternVL3_5-241B-A28B/resolve/main/images/ablation_cascade_rl.jpg)
 
 ![image/jpg](https://huggingface.co/OpenGVLab/InternVL3_5-241B-A28B/resolve/main/images/ablation_cascade_rl_table.jpg)
+
+## Quick Start
+
+### Training
+
+We open-source our training data (i.e., [MMPR-Tiny](https://huggingface.co/datasets/OpenGVLab/MMPR-Tiny)) on HuggingFace. To reproduce our training results, you need to download this dataset and move it into this folder.
+Additionally, considering that verl requires a validation dataset to be loaded, please prepare this data using this [script](examples/data_preprocess/geo3k.py).
+
+```
+├── MMPR-Tiny
+│   ├── images
+│   └── mmpr_tiny.parquet
+├── verl_data
+│   └── geo3k
+│       └── test.parquet
+├── verl
+└── README.md
+```
+
+We also provide a [packaged conda environment](https://huggingface.co/Weiyun1025/InternVL3_5-RL-conda-env/blob/main/verl-internvl.tar.gz) for easy reproduction. After preparing the dataset and conda environment, you can launch the training using the commond as follows:
+
+```shell
+sh shell/internvl3_5_8b.sh
+```
+
+### Evaluation
+
+We mainly use [VLMEvalkit](https://github.com/open-compass/VLMEvalKit) to evaluate our models. Please refer to their documentation and our model configs for more details. As an example, you can set the config as follows:
+
+```python
+"InternVL3_5-8B-Thinking": partial(
+    InternVLChat,
+    model_path="/path/to/your/moel",
+    version="V2.0",
+    cot_prompt_version="r1",
+    max_new_tokens=32768,
+    do_sample=True,
+    use_lmdeploy=True,
+),
+```
+
+## Citation
+If you find this project useful in your research, please consider citing:
+```BibTeX
+@article{wang2025internvl3_5,
+  title={InternVL3.5: Advancing Open-Source Multimodal Models in Versatility, Reasoning, and Efficiency},
+  author={Wang, Weiyun and Gao, Zhangwei and Gu, Lixin and Pu, Hengjun and Cui, Long and Wei, Xingguang and Liu, Zhaoyang and Jing, Linglin and Ye, Shenglong and Shao, Jie and others},
+  journal={arXiv preprint arXiv:2508.18265},
+  year={2025}
+}
+@article{wang2024mpo,
+  title={Enhancing the Reasoning Ability of Multimodal Large Language Models via Mixed Preference Optimization},
+  author={Wang, Weiyun and Chen, Zhe and Wang, Wenhai and Cao, Yue and Liu, Yangzhou and Gao, Zhangwei and Zhu, Jinguo and Zhu, Xizhou and Lu, Lewei and Qiao, Yu and Dai, Jifeng},
+  journal={arXiv preprint arXiv:2411.10442},
+  year={2024}
+}
+```

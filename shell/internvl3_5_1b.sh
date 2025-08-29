@@ -70,7 +70,7 @@ use_dynamic_bsz=True
 ray job submit --address=${RAY_ADDRESS} \
     -- python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=${CURRENT_PATH}/verl_data/MMPR-Tiny/mmpr_tiny.parquet \
+    data.train_files=${CURRENT_PATH}/MMPR-Tiny/mmpr_tiny.parquet \
     data.val_files=${CURRENT_PATH}/verl_data/geo3k/test.parquet \
     data.train_batch_size=${ROLLOUT_BATCH_SIZE} \
     data.max_prompt_length=8192 \
