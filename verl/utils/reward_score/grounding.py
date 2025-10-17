@@ -1,81 +1,32 @@
-import json
 import math
 import re
-from typing import Any, Iterable, List, Sequence, Tuple, Union
+from typing import Any, List, Sequence, Tuple, Union
 
 
 Number = Union[int, float]
 Box = Tuple[Number, Number, Number, Number]  # (x1, y1, x2, y2)
+BOX_RE = re.compile(r"<box>\s*\[(.*?)\]\s*</box>", flags=re.IGNORECASE | re.DOTALL)
+INT_RE = re.compile(r"-?\d+")
 
-
-def _to_float(x: Any) -> float:
-    try:
-        return float(x)
-    except Exception:
-        return math.nan
-
-
-def _normalize_box(b: Sequence[Any]) -> Box:
-    if len(b) != 4:
-        raise ValueError(f"Box must have 4 elements, got {len(b)}")
-    x1, y1, x2, y2 = (_to_float(b[0]), _to_float(b[1]), _to_float(b[2]), _to_float(b[3]))
-    # ensure x1<=x2, y1<=y2 when possible
-    if not (math.isnan(x1) or math.isnan(x2)) and x1 > x2:
-        x1, x2 = x2, x1
-    if not (math.isnan(y1) or math.isnan(y2)) and y1 > y2:
-        y1, y2 = y2, y1
-    return (x1, y1, x2, y2)
-
-
-def _parse_boxes_from_str(s: str) -> List[Box]:
-    s = s.strip()
-    # Try JSON first
-    try:
-        obj = json.loads(s)
-        return _parse_boxes(obj)
-    except Exception:
-        pass
-
-    # Fallback: extract numbers and group by 4
-    nums = re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", s)
-    vals = [float(n) for n in nums]
-    if len(vals) < 4:
+def extract_box_from_text(s: str) -> List[int]:
+    if not isinstance(s, str):
         return []
-    boxes = []
-    for i in range(0, len(vals) - 3, 4):
-        boxes.append(_normalize_box(vals[i : i + 4]))
-    return boxes
-
-
-def _parse_boxes(data: Any) -> List[Box]:
-    # Supported formats:
-    # - list[[x1,y1,x2,y2], ...]
-    # - dict{"boxes": [[x1,y1,x2,y2], ...]} or list of dicts with a box key
-    # - string (JSON or free text with numbers)
-    if data is None:
-        return []
-    if isinstance(data, str):
-        return _parse_boxes_from_str(data)
-    if isinstance(data, (tuple, list)):
-        # single box or list of boxes or list of dicts
-        if len(data) == 4 and all(isinstance(v, (int, float, str)) for v in data):
-            return [_normalize_box(data)]
-        out: List[Box] = []
-        for item in data:
-            if isinstance(item, (tuple, list)):
-                out.append(_normalize_box(item))
-            elif isinstance(item, dict):
-                if "box" in item:
-                    out.append(_normalize_box(item["box"]))
-                elif all(k in item for k in ("x1", "y1", "x2", "y2")):
-                    out.append(_normalize_box([item["x1"], item["y1"], item["x2"], item["y2"]]))
-        return out
-    if isinstance(data, dict):
-        if "boxes" in data and isinstance(data["boxes"], (list, tuple)):
-            return _parse_boxes(data["boxes"])
-        if all(k in data for k in ("x1", "y1", "x2", "y2")):
-            return [_normalize_box([data["x1"], data["y1"], data["x2"], data["y2"]])]
-    # unsupported
+    # Prefer training format: <box>[x1, y1, x2, y2]</box>
+    m = BOX_RE.search(s)
+    if m:
+        try:
+            vals = [int(v.strip()) for v in m.group(1).split(",")]
+            if len(vals) >= 4:
+                return vals[:4]
+        except Exception:
+            pass
+    # Fallback: first four integers
+    nums = INT_RE.findall(s)
+    if len(nums) >= 4:
+        try:
+            return [int(nums[0]), int(nums[1]), int(nums[2]), int(nums[3])]
+        except Exception:
+            return []
     return []
 
 
@@ -102,35 +53,27 @@ def _iou(a: Box, b: Box) -> float:
         return 0.0
     return inter_area / union
 
-
-def _greedy_match(preds: List[Box], gts: List[Box]) -> Tuple[int, float, List[float]]:
-    """Greedy one-to-one matching by IoU. Returns (matched, best_overall_iou, per_gt_best_iou)."""
-    used_pred = set()
-    matched = 0
-    best_overall = 0.0
-    per_gt_best: List[float] = []
-
-    for gt in gts:
-        best_iou = 0.0
-        best_j = -1
-        for j, pr in enumerate(preds):
-            if j in used_pred:
-                continue
-            iou = _iou(pr, gt)
-            if iou > best_iou:
-                best_iou = iou
-                best_j = j
-        per_gt_best.append(best_iou)
-        best_overall = max(best_overall, best_iou)
-        if best_j >= 0:
-            used_pred.add(best_j)
-            matched += 1
-    return matched, best_overall, per_gt_best
+def scale_bbox(bbox, w, h):
+    x1, y1, x2, y2 = bbox
+    x1 = round(x1 * w / 1000.0)
+    x2 = round(x2 * w / 1000.0)
+    y1 = round(y1 * h / 1000.0)
+    y2 = round(y2 * h / 1000.0)
 
 
-def _normalize_text(s: str) -> str:
-    return re.sub(r"\s+", "", s or "").lower()
+    x1 = max(0, min(x1, w - 1))
+    x2 = max(0, min(x2, w - 1))
+    y1 = max(0, min(y1, h - 1))
+    y2 = max(0, min(y2, h - 1))
 
+    if x1 == x2 and w > 1: x2 = min(x1 + 1, w - 1)
+    if y1 == y2 and h > 1: y2 = min(y1 + 1, h - 1)
+    return [float(x1), float(y1), float(x2), float(y2)]
+
+def to_box_tuple(b: Sequence[Union[int, float]]) -> Box:
+    if not isinstance(b, (list, tuple)) or len(b) != 4:
+        return (math.nan, math.nan, math.nan, math.nan)
+    return (float(b[0]), float(b[1]), float(b[2]), float(b[3]))
 
 def compute_score(
     solution_str: Any,
@@ -138,36 +81,26 @@ def compute_score(
     extra_info: Any = None,
     **kwargs,
 ):
+    """
+    Compute IoU between predicted and ground-truth bounding boxes (single example).
 
-    # Allow override via kwargs or extra_info dict
-    if isinstance(extra_info, dict) and "iou_thresh" in extra_info:
-        iou_thresh = float(extra_info.get("iou_thresh", 0.5))
+    Inputs:
+      - ground_truth: list[int] of 4 coords
+      - solution_str: str containing the coords (e.g., "<box>[x1,y1,x2,y2]</box>")
+
+    Returns:
+      - float IoU for the single example.
+    """
+    pb = extract_box_from_text(solution_str)
+    if len(pb) != 4 or not isinstance(ground_truth, (list, tuple)) or len(ground_truth) != 4:
+        return 0.0
+    # Use provided scale_bbox (bbox, width, height) if height/width available
+    if isinstance(extra_info, dict) and ("height" in extra_info and "width" in extra_info):
+        h = extra_info["height"]
+        w = extra_info["width"]
+        pred_box = scale_bbox(pb, w, h)
+        gt_box = scale_bbox(ground_truth, w, h)
     else:
-        iou_thresh = float(kwargs.get("iou_thresh", 0.5))
-
-    # Try box-based evaluation first
-    pred_boxes = _parse_boxes(solution_str)
-    gt_boxes = _parse_boxes(ground_truth)
-
-    if pred_boxes or gt_boxes:
-        matched, best_overall, per_gt_best = _greedy_match(pred_boxes, gt_boxes)
-        # Count matches above threshold
-        tp = sum(1 for v in per_gt_best if v >= iou_thresh)
-        n_pred = len(pred_boxes)
-        n_gt = len(gt_boxes)
-        precision = (tp / n_pred) if n_pred > 0 else 0.0
-        recall = (tp / n_gt) if n_gt > 0 else 0.0
-        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
-
-        # Only expose required keys
-        return {"score": float(f1), "iou": float(best_overall)}
-
-    # Text fallback: EM ignoring spaces and case
-    try:
-        pred = str(solution_str)
-        gt = str(ground_truth)
-        em = _normalize_text(pred) == _normalize_text(gt)
-        # Fallback: provide score and a dummy IoU (0.0 as IoU is not applicable)
-        return {"score": 1.0 if em else 0.0, "iou": 0.0}
-    except Exception:
-        return {"score": 0.0, "iou": 0.0}
+        pred_box = pb
+        gt_box = ground_truth
+    return float(_iou(to_box_tuple(pred_box), to_box_tuple(gt_box)))
