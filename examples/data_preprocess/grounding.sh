@@ -5,6 +5,6 @@ VALID_FILE=( "refcoco_testA.jsonl" "refcoco_testB.jsonl" "refcoco+_testA.jsonl" 
 python examples/data_preprocess/grounding.py \
     --input_dir $INPUT_DIR \
     --output_dir $OUTPUT_DIR \
-    --train_file ${TRAIN_FILE[@]} \
-    --valid_file ${VALID_FILE[@]} \
+    --train_files ${TRAIN_FILE[@]} \
+    --test_files ${VALID_FILE[@]} \
     --num_workers 64
