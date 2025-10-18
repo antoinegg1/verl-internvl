@@ -89,6 +89,11 @@ def default_compute_score(
         from . import geo3k
 
         res = geo3k.compute_score(solution_str, ground_truth)
+    elif data_source in ["grounding"]:
+        from . import grounding
+
+        # Pass extra_info for height/width based IoU normalization
+        res = grounding.compute_score(solution_str, ground_truth, extra_info=extra_info)
     elif data_source in [
         "searchR1_nq",
         "searchR1_triviaqa",
