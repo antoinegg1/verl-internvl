@@ -95,7 +95,7 @@ if __name__ == "__main__":
             iou14 = float(ex.get("14b_model_iou", float("nan")))
         except Exception:
             return False
-        return (iou1 > IOU_1B_MIN) and (iou8 > IOU_8B_MIN) and (iou14 > IOU_14B_MIN)
+        return (iou1 < 0.8) and (iou14 < iou1+0.5) and (iou14 > 0.4) 
 
     # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
 
