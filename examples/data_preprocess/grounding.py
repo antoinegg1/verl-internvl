@@ -62,6 +62,12 @@ if __name__ == "__main__":
         default=["test.json"],
         help="One or more test JSON files or glob patterns (relative to --input_dir if not absolute)",
     )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=max(1, (os.cpu_count() or 1) // 2),
+        help="Number of worker processes for map/filter (datasets num_proc)",
+    )
 
     # parser.add_argument("--hdfs_dir", default=None)
 
@@ -71,6 +77,8 @@ if __name__ == "__main__":
     input_dir = os.path.expanduser(args.input_dir) 
     output_dir = os.path.expanduser(args.output_dir) 
     os.makedirs(output_dir, exist_ok=True)
+    num_workers = int(args.num_workers)
+    print(f"[grounding preprocess] using num_workers={num_workers}")
 
     # Resolve files by simple path join (no globbing)
     def expand_files(files):
@@ -134,7 +142,7 @@ if __name__ == "__main__":
             sent = example["sent"]
             bbox = example["bbox"]
             H = example["height"]
-            W = example[""]
+            W = example["width"]
 
             content = f"<image>\nPlease provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>"
             data = {
@@ -159,16 +167,28 @@ if __name__ == "__main__":
     if len(train_files) > 0:
         train_path = train_files[0]
         ds = datasets.load_dataset("json", data_files=train_path)["train"]
-        ds = ds.filter(_keep_by_iou)
-        ds = ds.map(function=make_map_fn("train"), with_indices=True)
+        ds = ds.filter(_keep_by_iou, num_proc=num_workers)
+        ds = ds.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
+        print(f"[grounding preprocess] train samples: {len(ds)}")
         ds.to_parquet(os.path.join(output_dir, "train.parquet"))
 
-    # Process test files individually and name by JSON basename (no filtering)
+    # Process test files: sample 10% from each and mix into a single dataset
+    mixed_slices = []
     for file_path in test_files:
-        base = os.path.splitext(os.path.basename(file_path))[0]
         ds = datasets.load_dataset("json", data_files=file_path)["train"]
-        ds = ds.map(function=make_map_fn_test(), with_indices=True)
-        ds.to_parquet(os.path.join(output_dir, f"{base}.parquet"))
+        ds = ds.map(function=make_map_fn_test(), with_indices=True, num_proc=num_workers)
+        n = len(ds)
+        k = max(1, int(n * 0.1)) if n > 0 else 0
+        if k > 0:
+            ds_slice = ds.shuffle(seed=42).select(range(k))
+            mixed_slices.append(ds_slice)
+
+    if len(mixed_slices) > 0:
+        mixed = datasets.concatenate_datasets(mixed_slices).shuffle(seed=42)
+        print(f"[grounding preprocess] test samples (mixed 10% per file): {len(mixed)}")
+        mixed.to_parquet(os.path.join(output_dir, "test_mixed.parquet"))
+    else:
+        print("[grounding preprocess] no test samples produced (no input or all empty)")
 
     # if hdfs_dir is not None:
     #     makedirs(hdfs_dir)
