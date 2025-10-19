@@ -98,14 +98,21 @@ if __name__ == "__main__":
         return (iou1 < 0.8) and (iou14 < iou1+0.5) and (iou14 > 0.4) 
 
     # instruction_following = 'Let\'s think step by step and output the final answer after "####".'
-
+    BASE_IMG_PATH = "/storage/openpsi/data/coco/train2014/"
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
         def process_fn(example, idx):
             conversation=example.pop("conversations")
             question_raw = conversation[0]["value"]
             answer_raw = conversation[1]["value"]
-            images = [example.pop("image")]
+            img_name = os.path.basename(example["image"])  # 确保只取文件名
+            img_path = os.path.join(BASE_IMG_PATH, img_name)
+
+            if not os.path.exists(img_path):
+                print(f"[Warning] Image not found: {img_path}")
+                return None
+
+            images = [img_path]
 
             # For grounding, use the raw question directly
             question = question_raw
@@ -138,17 +145,20 @@ if __name__ == "__main__":
     # Map function for test-style records: {image, sent, bbox, height, width}
     def make_map_fn_test():
         def process_fn(example, idx):
-            img = example["image"]
+            img_name = os.path.basename(example["image"])
+            img_path= os.path.join(BASE_IMG_PATH, img_name)
             sent = example["sent"]
             bbox = example["bbox"]
             H = example["height"]
             W = example["width"]
+            if not os.path.exists(img_path):
+                print(f"[Warning] Image not found: {img_path}")
 
             content = f"<image>\nPlease provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>"
             data = {
                 "data_source": "grounding",
                 "prompt": [{"role": "user", "content": content}],
-                "images": [img],
+                "images": [img_path],
                 "ability": "grounding",
                 "reward_model": {"style": "rule", "ground_truth": bbox},
                 "extra_info": {

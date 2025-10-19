@@ -20,6 +20,59 @@ We use [MMPR-Tiny](https://huggingface.co/datasets/OpenGVLab/MMPR-Tiny) as the t
 
 For the original README of verl, please refer to [this file](README_verl.md).
 
+## Grounding
+
+*Remember to replace all local paths, IP addresses, and ports in the programs with the corresponding ones on your server.*
+
+
+### Infer/Evaluate
+
+```bash
+nohup python -m sglang.launch_server \
+  --model-path #{Your_model_path}   \
+  --host 0.0.0.0 --port 30000 \
+  --nnodes 1 --node-rank 0 \
+  --dp-size 8 \
+  --tp-size 1 \
+  --dtype auto \
+  --mem-fraction-static 0.8 \
+  > /var/log/sglang_node0.log 2>&1 &
+```
+After sglang launched, run
+```bash 
+bash scripts/sglang_infer.sh
+```
+### RL Training
+
+
+Preprocess your dataset with
+```bash 
+bash /examples/data_preprocess/grounding.sh
+```
+which simples 10% from each validation dataset.
+
+For single node training (1B model),
+```bash 
+bash /shell/grounding_internvl3_5_1b.sh
+```
+For multinode training (8B model), run
+```bash 
+bash /scripts/launch_ray.sh
+```
+on the head node and run
+```bash 
+bash /scripts/launch_ray_worker.sh
+```
+on the worker nodes
+
+Then run
+```bash 
+bash /scripts/submit_job.sh
+```
+on the head node.
+
+
+
 ## Experimental Results
 
 Based on this codebase, the InternVL3.5 series across all model scales achieve a significant improvement in reasoning performance.
@@ -51,6 +104,8 @@ We also provide a [packaged conda environment](https://huggingface.co/Weiyun1025
 ```shell
 sh shell/internvl3_5_8b.sh
 ```
+
+
 
 ### Evaluation
 

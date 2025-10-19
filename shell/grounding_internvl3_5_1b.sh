@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 set -x
 
 export RAY_MASTER_PORT=6379
@@ -6,62 +7,64 @@ export RAY_DASHBOARD_PORT=8265
 export MASTER_PORT=34235
 export TF_CPP_MIN_LOG_LEVEL=3
 
-# Set up the Ray temporary directory
+# Ray 临时目录
 export RAY_TMPDIR=/dev/shm/ray_wwy
-rm -rf ${RAY_TMPDIR}
-mkdir -p ${RAY_TMPDIR}
+rm -rf "${RAY_TMPDIR}"
+mkdir -p "${RAY_TMPDIR}"
 
-# Set the task name
-CURRENT_PATH=$(pwd)
+# 任务名
 PROJECT_NAME=internvl3_5_1b_grounding_rl
 TASK_NAME=$(basename "$0")
 TASK_NAME="${TASK_NAME%.*}"
 echo "TASK_NAME: $TASK_NAME"
 echo "PROJECT_NAME: $PROJECT_NAME"
-
+unset ROCR_VISIBLE_DEVICES || true
+unset HIP_VISIBLE_DEVICES || true
 export OUTPUT_PATH="/storage/openpsi/models/${PROJECT_NAME}/${TASK_NAME}"
-export TENSORBOARD_DIR=${OUTPUT_PATH}/tensorboard
-export JOBLOG=${OUTPUT_PATH}/training.log
-RAY_WORKING_DIR="${OUTPUT_PATH}/ray_working_dir/"
+export JOBLOG="${OUTPUT_PATH}/training.log"
+RAY_WORKING_DIR="${OUTPUT_PATH}/ray_working_dir"
 
-# Create output directory if it does not exist
-mkdir -p ${OUTPUT_PATH}
-mkdir -p ${TENSORBOARD_DIR}
-mkdir -p ${RAY_WORKING_DIR}
+mkdir -p "${OUTPUT_PATH}"  "${RAY_WORKING_DIR}"
 
-# Set up environment variables
-export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-export TRITON_CACHE_DIR="/dev/shm/triton_wwy/"
-export VLLM_CACHE_ROOT="/dev/shm/vllmca_wwy/"
+# export TRITON_CACHE_DIR="/dev/shm/triton_wwy/"
+# export VLLM_CACHE_ROOT="/dev/shm/vllmca_wwy/"
 
-echo "start ray worker" &>> ${JOBLOG}
+# 让下游程序自动找到本机 head
+export RAY_ADDRESS="127.0.0.1:${RAY_MASTER_PORT}"
 
-if [ "$RANK" -eq 0 ]; then
-    ray start --head  --port=$RAY_MASTER_PORT --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT --num-gpus 8
-    echo "Main node finished"
-else
-    sleep 30
-    echo "Node started"
-    ray start --address="$MASTER_ADDR:$RAY_MASTER_PORT" --num-gpus 8 --block
-fi
+# 确保干净启动；忽略未运行时的报错
+ray stop --force || true
 
-echo "submit ray job" &>> ${JOBLOG}
+echo "start ray head" &>> "${JOBLOG}"
 
-sleep 30
-ray status
-ray list nodes
-echo $MASTER_ADDR
+# 启动本机 head（单机 8 卡）
+ray start \
+  --head \
+  --port="${RAY_MASTER_PORT}" \
+  --dashboard-host=0.0.0.0 \
+  --dashboard-port="${RAY_DASHBOARD_PORT}" \
+  --temp-dir="${RAY_TMPDIR}" \
+  --num-gpus=8
+
+echo "Ray head started on ${RAY_ADDRESS}" &>> "${JOBLOG}"
+
+# 可选：展示集群状态
+sleep 3
+ray status || true
+ray list nodes || true
+echo "RAY_ADDRESS=${RAY_ADDRESS}"
+echo "Dashboard: http://$(hostname -I | awk '{print $1}'):${RAY_DASHBOARD_PORT}"
 
 # Dynamically compute the number of nodes and total GPU engines
 NUM_GPUS_PER_NODE=8
-MICRO_TRAIN_BATCH_SIZE=16
-MICRO_ROLLOUT_BATCH_SIZE=16
+MICRO_TRAIN_BATCH_SIZE=32
+MICRO_ROLLOUT_BATCH_SIZE=32
 ROLLOUT_BATCH_SIZE=512
 N_SAMPLES_PER_PROMPT=16
 TENSOR_PARALLEL=1
-SEQUENCE_PARALLEL=2
-PPO_MINI_BATCH_SIZE=32
-RAY_ADDRESS="http://${MASTER_ADDR}:${RAY_DASHBOARD_PORT}"
+SEQUENCE_PARALLEL=1
+PPO_MINI_BATCH_SIZE=256
+WORLD_SIZE=1
 
 NPROC_PER_NODE=8
 use_dynamic_bsz=True
@@ -73,8 +76,8 @@ ray job submit --address=${RAY_ADDRESS} \
     data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train.parquet \
     data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_mixed.parquet \
     data.train_batch_size=${ROLLOUT_BATCH_SIZE} \
-    data.max_prompt_length=8192 \
-    data.max_response_length=32768 \
+    data.max_prompt_length=4096 \
+    data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.filter_overlong_prompts_workers=8 \
     data.truncation='error' \
@@ -82,7 +85,7 @@ ray job submit --address=${RAY_ADDRESS} \
     data.trust_remote_code=True \
     reward_model.enable=False \
     data.reward_fn_key=data_source \
-    custom_reward_function.path=${CURRENT_PATH}/verl-internvl/verl/utils/reward_score/grounding.py \
+    custom_reward_function.path=/storage/openpsi/users/lichangye.lcy/VeRL_InternVL/verl/utils/reward_score/grounding.py \
     custom_reward_function.name=compute_score \
     actor_rollout_ref.model.path=/storage/openpsi/models/internvl3_1b_cot_thinking_with_text \
     actor_rollout_ref.model.trust_remote_code=True \
@@ -99,10 +102,10 @@ ray job submit --address=${RAY_ADDRESS} \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.policy_loss.loss_mode=gspo \
-    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.model.enable_gradient_checkpointing=False \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=16 \
-    actor_rollout_ref.actor.fsdp_config.param_offload=True \
-    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+    actor_rollout_ref.actor.fsdp_config.param_offload=False \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${SEQUENCE_PARALLEL} \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${MICRO_ROLLOUT_BATCH_SIZE} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${TENSOR_PARALLEL} \
@@ -113,20 +116,20 @@ ray job submit --address=${RAY_ADDRESS} \
     actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.rollout.n=${N_SAMPLES_PER_PROMPT} \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${MICRO_TRAIN_BATCH_SIZE} \
-    actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.ref.fsdp_config.param_offload=False \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${SEQUENCE_PARALLEL} \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
     algorithm.use_kl_in_reward=False \
     algorithm.kl_ctrl.kl_coef=0.0 \
     trainer.critic_warmup=0 \
     trainer.default_local_dir=${OUTPUT_PATH} \
-    trainer.logger=['console','tensorboard'] \
+    trainer.logger=['console','wandb'] \
     trainer.project_name=${PROJECT_NAME} \
     trainer.experiment_name=${TASK_NAME} \
     trainer.n_gpus_per_node=${NPROC_PER_NODE} \
     trainer.nnodes=${WORLD_SIZE} \
     trainer.save_freq=10 \
-    trainer.test_freq=50 \
+    trainer.test_freq=3 \
     trainer.val_before_train=False \
     trainer.rollout_data_dir=${OUTPUT_PATH}/rollouts \
     trainer.total_epochs=10 2>&1 | tee ${JOBLOG}
