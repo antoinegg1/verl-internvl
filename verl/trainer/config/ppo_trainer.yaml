@@ -309,6 +309,7 @@ actor_rollout_ref:
       use_orig_params: False
       # Whether frozen the vision tower
       frozen_vision_tower: False
+      model_dtype: bfloat16 
 
     # profiler configs
     profiler:
