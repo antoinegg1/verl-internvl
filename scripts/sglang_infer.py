@@ -199,8 +199,9 @@ def parse_args():
     args.add_argument("--endpoint", default="http://127.0.0.1:30000")
     args.add_argument("--model_path", required=True, help="SGLang 服务端加载的模型名/路径")
     args.add_argument("--output_dir")
-    args.add_argument("--max_tokens", type=int, default=1024)
-    args.add_argument("--concurrency", type=int, default=256, help="并发请求数量上限")
+    args.add_argument("--max_tokens", type=int, default=512)
+    args.add_argument("--concurrency", type=int, default=128, help="并发请求数量上限")
+    args.add_argument("--flush_every", type=int, default=10000, help="每多少条落盘一次")
     return args.parse_args()
 
 if __name__ == "__main__":

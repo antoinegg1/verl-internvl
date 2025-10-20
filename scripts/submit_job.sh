@@ -6,8 +6,8 @@ set -x
 export RAY_MASTER_PORT=26379
 export RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
 # 任务名与输出目录
-export PROJECT_NAME="${PROJECT_NAME:-internvl3_5_8b_grounding_rl}"
-TASK_NAME=$(basename "$0"); TASK_NAME="${TASK_NAME%.*}"
+export PROJECT_NAME="internvl3_5_8b_grounding_rl"
+TASK_NAME="trial2"
 unset ROCR_VISIBLE_DEVICES || true
 unset HIP_VISIBLE_DEVICES || true
 export OUTPUT_PATH="${OUTPUT_PATH:-/storage/openpsi/models/${PROJECT_NAME}/${TASK_NAME}}"
@@ -33,11 +33,11 @@ done
 echo "All previous jobs cleared."
 # ===== 训练/推理超参（可通过环境变量覆盖）=====
 export NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:-8}"
-export MICRO_TRAIN_BATCH_SIZE="${MICRO_TRAIN_BATCH_SIZE:-32}"
-export MICRO_ROLLOUT_BATCH_SIZE="${MICRO_ROLLOUT_BATCH_SIZE:-32}"
+export MICRO_TRAIN_BATCH_SIZE="${MICRO_TRAIN_BATCH_SIZE:-16}"
+export MICRO_ROLLOUT_BATCH_SIZE="${MICRO_ROLLOUT_BATCH_SIZE:-16}"
 export ROLLOUT_BATCH_SIZE="${ROLLOUT_BATCH_SIZE:-512}"
 export N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-16}"
-export TENSOR_PARALLEL="${TENSOR_PARALLEL:-1}"
+export TENSOR_PARALLEL="${TENSOR_PARALLEL:-4}"
 export SEQUENCE_PARALLEL="${SEQUENCE_PARALLEL:-1}"
 export PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-256}"
 # WORLD_SIZE=节点数量（含 head）。多机自行设置，如： WORLD_SIZE=4 ./submit_job.sh
@@ -55,7 +55,8 @@ RUNTIME_ENV_JSON=$(jq -nc \
       WANDB_BASE_URL: $wb,
       WANDB_API_KEY: $key,
       ROCR_VISIBLE_DEVICES: "",
-      HIP_VISIBLE_DEVICES: ""
+      HIP_VISIBLE_DEVICES: "",
+      VLLM_ALLREDUCE_USE_SYMM_MEM: "0",
   }}')
 
 
@@ -64,7 +65,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   --runtime-env-json="$RUNTIME_ENV_JSON" \
   -- python3 -m verl.trainer.main_ppo \
   algorithm.adv_estimator=grpo \
-  data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train.parquet \
+  data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train8B.parquet \
   data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_mixed.parquet \
   data.train_batch_size="${ROLLOUT_BATCH_SIZE}" \
   data.max_prompt_length=4096 \
@@ -93,10 +94,10 @@ ray job submit --address="${RAY_ADDRESS}" \
   actor_rollout_ref.actor.kl_loss_type=low_var_kl \
   actor_rollout_ref.actor.entropy_coeff=0 \
   actor_rollout_ref.actor.policy_loss.loss_mode=gspo \
-  actor_rollout_ref.model.enable_gradient_checkpointing=False \
+  actor_rollout_ref.model.enable_gradient_checkpointing=True \
   actor_rollout_ref.actor.fsdp_config.fsdp_size=16 \
-  actor_rollout_ref.actor.fsdp_config.param_offload=False \
-  actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+  actor_rollout_ref.actor.fsdp_config.param_offload=True \
+  actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
   actor_rollout_ref.actor.ulysses_sequence_parallel_size="${SEQUENCE_PARALLEL}" \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu="${MICRO_ROLLOUT_BATCH_SIZE}" \
   actor_rollout_ref.rollout.tensor_model_parallel_size="${TENSOR_PARALLEL}" \
@@ -112,7 +113,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   actor_rollout_ref.actor.loss_agg_mode=token-mean \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
-  trainer.critic_warmup=0 \
+  trainer.critic_warmup=0.05 \
   trainer.default_local_dir="${OUTPUT_PATH}" \
   trainer.logger=['console','wandb'] \
   trainer.project_name="${PROJECT_NAME}" \
@@ -120,7 +121,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   trainer.n_gpus_per_node="${NPROC_PER_NODE}" \
   trainer.nnodes="${WORLD_SIZE}" \
   trainer.save_freq=10 \
-  trainer.test_freq=3 \
+  trainer.test_freq=6 \
   trainer.val_before_train=False \
   trainer.rollout_data_dir="${OUTPUT_PATH}/rollouts" \
-  trainer.total_epochs=10 2>&1 | tee "${JOBLOG}"
+  trainer.total_epochs=100 2>&1 | tee "${JOBLOG}"
