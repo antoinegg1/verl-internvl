@@ -1,13 +1,13 @@
 export BASE_IMAGE_DIR="/storage/openpsi/" 
-model_path=${1:-" /storage/openpsi/models/internvl3_5_1b_grounding_rl/hf_merged_step140"}
+model_path=${1:-"/storage/openpsi/models/InternVL3_5-241B-A28B"}
 
 echo "Using model path: $model_path"
 model_name="$(basename "$model_path")"
 result_dir="/storage/openpsi/data/grounding_sft_v1_result/${model_name}"
 mkdir -p "$result_dir" 
-data_name_list=( "refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB" "refcoco+_val" "refcocog_val" "refcocog_test" "refcoco_val")
+# data_name_list=( "refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB" "refcoco+_val" "refcocog_val" "refcocog_test" "refcoco_val")
 # "refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB"
-# data_name_list=( "refcoco_trainv4" )
+data_name_list=( "refcoco_trainv4" )
 # "refcoco_testA" 
 for data_name in "${data_name_list[@]}"; do
     echo "Processing dataset: $data_name"
@@ -26,14 +26,14 @@ done
 #   --model-path  /storage/openpsi/models/InternVL3_5-241B-A28B   \
 #   --host 0.0.0.0 --port 30000 \
 #   --nnodes 2 --node-rank 1 \
-#   --dist-init-addr 33.180.164.146:50000 \
+#   --dist-init-addr 33.180.167.175:50000 \
 #   --tp-size 16 \
 #   --dtype auto \
 #   --mem-fraction-static 0.7 \
 #   > /var/log/sglang_node1.log 2>&1 &
 
 # nohup python -m sglang.launch_server \
-#   --model-path /storage/openpsi/models/internvl3_5_1b_grounding_rl/hf_merged_step140   \
+#   --model-path /storage/openpsi/models/internvl3_5_8b_grounding_rl/trial1/hf_merged_step230    \
 #   --host 0.0.0.0 --port 30000 \
 #   --nnodes 1 --node-rank 0 \
 #   --dp-size 8 \
