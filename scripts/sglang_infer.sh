@@ -1,13 +1,13 @@
 export BASE_IMAGE_DIR="/storage/openpsi/" 
-model_path=${1:-"/storage/openpsi/models/InternVL3_5-241B-A28B"}
+model_path=${1:-"/storage/openpsi/models/InternVL3_8B_Grounding_CoT_Text_SFT_20251016"}
 
 echo "Using model path: $model_path"
 model_name="$(basename "$model_path")"
 result_dir="/storage/openpsi/data/grounding_sft_v1_result/${model_name}"
 mkdir -p "$result_dir" 
-# data_name_list=( "refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB" "refcoco+_val" "refcocog_val" "refcocog_test" "refcoco_val")
+data_name_list=( "refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB" "refcoco+_val" "refcocog_val" "refcocog_test" "refcoco_val")
 # "refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB"
-data_name_list=( "refcoco_trainv4" )
+# data_name_list=( "refcoco_trainv4" )
 # "refcoco_testA" 
 for data_name in "${data_name_list[@]}"; do
     echo "Processing dataset: $data_name"
@@ -33,7 +33,7 @@ done
 #   > /var/log/sglang_node1.log 2>&1 &
 
 # nohup python -m sglang.launch_server \
-#   --model-path /storage/openpsi/models/internvl3_5_8b_grounding_rl/trial1/hf_merged_step230    \
+#   --model-path  /storage/openpsi/models/InternVL3_8B_Grounding_CoT_Text_SFT_20251016 \
 #   --host 0.0.0.0 --port 30000 \
 #   --nnodes 1 --node-rank 0 \
 #   --dp-size 8 \
