@@ -7,6 +7,7 @@ Number = Union[int, float]
 Box = Tuple[Number, Number, Number, Number]  # (x1, y1, x2, y2)
 BOX_RE = re.compile(r"<box>\s*\[(.*?)\]\s*</box>", flags=re.IGNORECASE | re.DOTALL)
 INT_RE = re.compile(r"-?\d+")
+REWARD_TYPE = "pass@0.5_iou"
 
 def extract_box_from_text(s: str) -> List[int]:
     if not isinstance(s, str):
@@ -101,6 +102,9 @@ def compute_score(
         pred_box = scale_bbox(pb, w, h)
         gt_box = scale_bbox(ground_truth, w, h)
     else:
-        pred_box = pb
-        gt_box = ground_truth
-    return float(_iou(to_box_tuple(pred_box), to_box_tuple(gt_box)))
+        raise ValueError("Height and width must be provided in extra_info for scaling bounding boxes.")
+    if REWARD_TYPE == "pass@0.5_iou":
+        iou_val = float(_iou(to_box_tuple(pred_box), to_box_tuple(gt_box)))
+        return 1.0 if iou_val >= 0.5 else 0.0
+    else:
+        return float(_iou(to_box_tuple(pred_box), to_box_tuple(gt_box)))

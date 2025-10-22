@@ -14,8 +14,7 @@ mkdir -p "${RAY_TMPDIR}"
 
 # 任务名
 PROJECT_NAME=internvl3_5_1b_grounding_rl
-TASK_NAME=$(basename "$0")
-TASK_NAME="${TASK_NAME%.*}"
+TASK_NAME="trial2"
 echo "TASK_NAME: $TASK_NAME"
 echo "PROJECT_NAME: $PROJECT_NAME"
 unset ROCR_VISIBLE_DEVICES || true
@@ -60,7 +59,7 @@ NUM_GPUS_PER_NODE=8
 MICRO_TRAIN_BATCH_SIZE=32
 MICRO_ROLLOUT_BATCH_SIZE=32
 ROLLOUT_BATCH_SIZE=512
-N_SAMPLES_PER_PROMPT=16
+N_SAMPLES_PER_PROMPT=32
 TENSOR_PARALLEL=1
 SEQUENCE_PARALLEL=1
 PPO_MINI_BATCH_SIZE=256
@@ -129,7 +128,7 @@ ray job submit --address=${RAY_ADDRESS} \
     trainer.n_gpus_per_node=${NPROC_PER_NODE} \
     trainer.nnodes=${WORLD_SIZE} \
     trainer.save_freq=10 \
-    trainer.test_freq=3 \
+    trainer.test_freq=5 \
     trainer.val_before_train=False \
     trainer.rollout_data_dir=${OUTPUT_PATH}/rollouts \
-    trainer.total_epochs=10 2>&1 | tee ${JOBLOG}
+    trainer.total_epochs=30 2>&1 | tee ${JOBLOG}
