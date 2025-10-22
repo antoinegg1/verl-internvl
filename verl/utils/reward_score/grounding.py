@@ -99,9 +99,12 @@ def compute_score(
         raise ValueError("'alpha' must be provided in reward_kwargs (0..1) for mix reward")
     if "threshold" not in kwargs:
         raise ValueError("'threshold' must be provided in reward_kwargs for pass metric")
+    if "reward_type" not in kwargs:
+        raise ValueError("'threshold' must be provided in reward_kwargs for pass metric")
 
     alpha = float(kwargs["alpha"])  # weight on pass
     iou_threshold = float(kwargs["threshold"])  # pass threshold
+    reward_type = kwargs.get("reward_type", "mix").lower()
     if not (0.0 <= alpha <= 1.0):
         raise ValueError(f"alpha must be in [0,1], got {alpha}")
 
@@ -116,10 +119,20 @@ def compute_score(
         gt_box = scale_bbox(ground_truth, w, h)
     else:
         raise ValueError("Height and width must be provided in extra_info for scaling bounding boxes.")
-
+    
     iou_val = float(_iou(to_box_tuple(pred_box), to_box_tuple(gt_box)))
     pass_val = 1.0 if iou_val >= iou_threshold else 0.0
-    return alpha * pass_val + (1.0 - alpha) * iou_val
+    if reward_type == "mix":
+        # old behavior
+        pass_val = 1.0 if iou_val >= iou_threshold else 0.0
+        reward = alpha * pass_val + (1.0 - alpha) * iou_val
+
+    elif reward_type == "sigmoid":
+        reward = 1.0 / (1.0 + math.exp(-8.0 * (iou_val - iou_threshold)))
+    else:
+        raise ValueError(f"Unknown reward_type '{reward_type}'. Use 'mix', 'sigmoid', or 'raw'.")
+
+    return reward
 
 
 # Removed variant wrappers; use compute_score with explicit alpha and threshold.

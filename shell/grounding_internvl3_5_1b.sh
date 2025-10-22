@@ -14,7 +14,7 @@ mkdir -p "${RAY_TMPDIR}"
 
 # 任务名
 PROJECT_NAME=internvl3_5_1b_grounding_rl
-TASK_NAME="trial2"
+TASK_NAME="trial3_alpha1_0"
 echo "TASK_NAME: $TASK_NAME"
 echo "PROJECT_NAME: $PROJECT_NAME"
 unset ROCR_VISIBLE_DEVICES || true
@@ -58,8 +58,8 @@ echo "Dashboard: http://$(hostname -I | awk '{print $1}'):${RAY_DASHBOARD_PORT}"
 NUM_GPUS_PER_NODE=8
 MICRO_TRAIN_BATCH_SIZE=32
 MICRO_ROLLOUT_BATCH_SIZE=32
-ROLLOUT_BATCH_SIZE=512
-N_SAMPLES_PER_PROMPT=32
+ROLLOUT_BATCH_SIZE=256
+N_SAMPLES_PER_PROMPT=16
 TENSOR_PARALLEL=1
 SEQUENCE_PARALLEL=1
 PPO_MINI_BATCH_SIZE=256
@@ -86,8 +86,8 @@ ray job submit --address=${RAY_ADDRESS} \
     data.reward_fn_key=data_source \
     custom_reward_function.path=/storage/openpsi/users/lichangye.lcy/VeRL_InternVL/verl/utils/reward_score/grounding.py \
     custom_reward_function.name=compute_score \
-    custom_reward_function.reward_kwargs.alpha=1.0 \
-    custom_reward_function.reward_kwargs.threshold=0.5 \
+    +custom_reward_function.reward_kwargs.alpha=1.0 \
+    +custom_reward_function.reward_kwargs.threshold=0.5 \
     actor_rollout_ref.model.path=/storage/openpsi/models/internvl3_1b_cot_thinking_with_text \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.optim.lr=3e-6 \
@@ -103,7 +103,7 @@ ray job submit --address=${RAY_ADDRESS} \
     actor_rollout_ref.actor.kl_loss_coef=0.0 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0.01 \
-    actor_rollout_ref.actor.policy_loss.loss_mode=ppo \
+    actor_rollout_ref.actor.policy_loss.loss_mode=gspo \
     actor_rollout_ref.model.enable_gradient_checkpointing=False \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=16 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
@@ -124,7 +124,7 @@ ray job submit --address=${RAY_ADDRESS} \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${SEQUENCE_PARALLEL} \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
-    actor_rollout_ref.rollout.val_kwargs.n=8 \
+    actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=False \
     algorithm.use_kl_in_reward=False \
     algorithm.kl_ctrl.kl_coef=0.0 \
