@@ -94,19 +94,23 @@ def compute_score(
     Returns:
       - float IoU for the single example.
     """
-    # Required knobs: alpha (0..1) and threshold (IoU cutoff)
-    if "alpha" not in kwargs:
-        raise ValueError("'alpha' must be provided in reward_kwargs (0..1) for mix reward")
-    if "threshold" not in kwargs:
-        raise ValueError("'threshold' must be provided in reward_kwargs for pass metric")
-    if "reward_type" not in kwargs:
-        raise ValueError("'threshold' must be provided in reward_kwargs for pass metric")
+    # Select phase (train/eval) to allow different reward configs
+    split = None
+    if isinstance(extra_info, dict):
+        split = extra_info.get("split", None)
+    is_test = split == "test"
 
-    alpha = float(kwargs["alpha"])  # weight on pass
-    iou_threshold = float(kwargs["threshold"])  # pass threshold
-    reward_type = kwargs.get("reward_type", "mix").lower()
-    if not (0.0 <= alpha <= 1.0):
-        raise ValueError(f"alpha must be in [0,1], got {alpha}")
+    # Resolve reward_type per phase, fallback to global reward_type
+    reward_type = kwargs.get("reward_type")
+
+    if is_test:
+        reward_type ="eval"
+
+
+    alpha = kwargs.get("alpha", None)
+    iou_threshold = kwargs.get("threshold", None)
+    if alpha is None or iou_threshold is None or reward_type is None:
+        raise ValueError("Missing required parameters: reward_type, alpha, threshold.")
 
     pb = extract_box_from_text(solution_str)
     if len(pb) != 4 or not isinstance(ground_truth, (list, tuple)) or len(ground_truth) != 4:
@@ -119,18 +123,16 @@ def compute_score(
         gt_box = scale_bbox(ground_truth, w, h)
     else:
         raise ValueError("Height and width must be provided in extra_info for scaling bounding boxes.")
-    
     iou_val = float(_iou(to_box_tuple(pred_box), to_box_tuple(gt_box)))
-    pass_val = 1.0 if iou_val >= iou_threshold else 0.0
     if reward_type == "mix":
-        # old behavior
         pass_val = 1.0 if iou_val >= iou_threshold else 0.0
         reward = alpha * pass_val + (1.0 - alpha) * iou_val
-
     elif reward_type == "sigmoid":
         reward = 1.0 / (1.0 + math.exp(-8.0 * (iou_val - iou_threshold)))
+    elif reward_type == "eval":
+        reward = 1.0 if iou_val >= iou_threshold else 0.0
     else:
-        raise ValueError(f"Unknown reward_type '{reward_type}'. Use 'mix', 'sigmoid', or 'raw'.")
+        raise ValueError("Unknown reward_type. Use 'mix', 'sigmoid', or 'raw'.")
 
     return reward
 
