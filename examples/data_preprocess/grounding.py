@@ -81,7 +81,7 @@ if __name__ == "__main__":
             iou14 = float(ex.get("14b_model_iou", float("nan")))
         except Exception:
             return False
-        return (iou1 < 0.6) and (iou14 < iou1 + 0.5) and (iou14 > 0.1)
+        return (iou1 < 0.5) and (iou14 < iou1 + 1.0) and (iou14 > 0.5)
 
     BASE_IMG_PATH = "/storage/openpsi/data/coco/train2014/"
 
@@ -179,7 +179,7 @@ if __name__ == "__main__":
         ds = ds.filter(_keep_by_iou, num_proc=num_workers)
         ds = ds.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
         print(f"[grounding preprocess] train samples: {len(ds)}")
-        ds.to_parquet(os.path.join(output_dir, "train.parquet"))
+        ds.to_parquet(os.path.join(output_dir, "train_1B_v3.parquet"))
 
     # Process test files: sample 10% from each and mix into a single dataset
     # mixed_slices = []
