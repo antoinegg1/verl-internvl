@@ -6,11 +6,18 @@ from tqdm import tqdm
 import re
 from PIL import Image
 import numpy as np
+import json
+import hashlib
 
 PROMPT_TEMPLATE = (
     "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> "
     # "Locate {sent}, output its bbox coordinates using JSON format. " #for Qwen
 )
+
+
+
+def hash(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 def to_data_url(image_path: str) -> str:
     with open(image_path, "rb") as f:
@@ -211,6 +218,17 @@ async def main_async(args):
         print("mean_iou", mean_iou)
         print("pass_rate@0.5", pass_rate)
 
+        detail = {}
+        for idx in range(len(ds)):
+            v = 0.0 if iou[idx] is None else float(iou[idx])
+            detail[idx] = {"v": v, "hash": hash(ds[idx]["sent"])}
+
+        # 写 iou_detail.json
+        detail_path = os.path.join(args.output_dir, "iou_detail.json")
+        with open(detail_path, "w", encoding="utf-8") as f:
+            json.dump(detail, f, ensure_ascii=False, indent=2)
+
+
         iou_file = os.path.join(args.output_dir, "iou.txt")
         with open(iou_file, "w", encoding="utf-8") as f:
             f.write(f"# IOU scores (N={len(iou)})\n")
@@ -257,7 +275,14 @@ async def main_async(args):
         stats = summarize_ious(iou)
         mean_iou = stats["mean_iou"]
         pass_rate = stats["pass_rate_05"]
-        all_scores.append(pass_rate)
+        shard_detail = {}
+        for j, val in enumerate(iou):
+            gid = start + j
+            v = 0.0 if val is None else float(val)
+            shard_detail[gid] = {"v": v, "hash": sent_hash(ds_chunk[j]["sent"])}
+
+        with open(os.path.join(shard_path, "iou_detail.json"), "w", encoding="utf-8") as f:
+            json.dump(shard_detail, f, ensure_ascii=False, indent=2)
 
         ds_chunk_out = (ds_chunk
                         .add_column("generated_result", generations)

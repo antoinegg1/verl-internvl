@@ -81,7 +81,7 @@ if __name__ == "__main__":
             iou14 = float(ex.get("14b_model_iou", float("nan")))
         except Exception:
             return False
-        return (iou8 < 0.7) and (iou14 < iou8 + 0.5) and (iou14 > 0.1)
+        return (iou1 < 0.6) and (iou14 < iou1 + 0.5) and (iou14 > 0.1)
 
     BASE_IMG_PATH = "/storage/openpsi/data/coco/train2014/"
 
@@ -179,23 +179,23 @@ if __name__ == "__main__":
         ds = ds.filter(_keep_by_iou, num_proc=num_workers)
         ds = ds.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
         print(f"[grounding preprocess] train samples: {len(ds)}")
-        ds.to_parquet(os.path.join(output_dir, "train8B.parquet"))
+        ds.to_parquet(os.path.join(output_dir, "train.parquet"))
 
     # Process test files: sample 10% from each and mix into a single dataset
-    mixed_slices = []
-    for file_path in test_files:
-        ds = datasets.load_dataset("json", data_files=file_path)["train"]
-        ds = ds.map(function=make_map_fn_test(), with_indices=True, num_proc=num_workers)
-        n = len(ds)
-        k = max(1, int(n * 0.1)) if n > 0 else 0
-        if k > 0:
-            ds_slice = ds.shuffle(seed=42).select(range(k))
-            mixed_slices.append(ds_slice)
+    # mixed_slices = []
+    # for file_path in test_files:
+    #     ds = datasets.load_dataset("json", data_files=file_path)["train"]
+    #     ds = ds.map(function=make_map_fn_test(), with_indices=True, num_proc=num_workers)
+    #     n = len(ds)
+    #     k = max(1, int(n * 0.1)) if n > 0 else 0
+    #     if k > 0:
+    #         ds_slice = ds.shuffle(seed=42).select(range(k))
+    #         mixed_slices.append(ds_slice)
 
-    if len(mixed_slices) > 0:
-        mixed = datasets.concatenate_datasets(mixed_slices).shuffle(seed=42)
-        print(f"[grounding preprocess] test samples (mixed 10% per file): {len(mixed)}")
-        mixed.to_parquet(os.path.join(output_dir, "test_mixed.parquet"))
-    else:
-        print("[grounding preprocess] no test samples produced (no input or all empty)")
+    # if len(mixed_slices) > 0:
+    #     mixed = datasets.concatenate_datasets(mixed_slices).shuffle(seed=42)
+    #     print(f"[grounding preprocess] test samples (mixed 10% per file): {len(mixed)}")
+    #     mixed.to_parquet(os.path.join(output_dir, "test_mixed.parquet"))
+    # else:
+    #     print("[grounding preprocess] no test samples produced (no input or all empty)")
 

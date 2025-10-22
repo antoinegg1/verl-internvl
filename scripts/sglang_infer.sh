@@ -1,5 +1,5 @@
 export BASE_IMAGE_DIR="/storage/openpsi/" 
-model_path=${1:-"/storage/openpsi/models/InternVL3_8B_Grounding_CoT_Text_SFT_20251016"}
+model_path=${1:-"/storage/openpsi/models/internvl3_5_1b_grounding_rl/hf_merged_step580"}
 
 echo "Using model path: $model_path"
 model_name="$(basename "$model_path")"
@@ -33,7 +33,7 @@ done
 #   > /var/log/sglang_node1.log 2>&1 &
 
 # nohup python -m sglang.launch_server \
-#   --model-path  /storage/openpsi/models/InternVL3_8B_Grounding_CoT_Text_SFT_20251016 \
+#   --model-path  /storage/openpsi/models/internvl3_5_1b_grounding_rl/hf_merged_step580 \
 #   --host 0.0.0.0 --port 30000 \
 #   --nnodes 1 --node-rank 0 \
 #   --dp-size 8 \
