@@ -7,7 +7,9 @@ Number = Union[int, float]
 Box = Tuple[Number, Number, Number, Number]  # (x1, y1, x2, y2)
 BOX_RE = re.compile(r"<box>\s*\[(.*?)\]\s*</box>", flags=re.IGNORECASE | re.DOTALL)
 INT_RE = re.compile(r"-?\d+")
-REWARD_TYPE = "pass@0.5_iou"
+# NOTE: This module now exposes a single compute_score that returns
+# a weighted mix between pass@threshold (binary) and IoU (continuous).
+# All knobs must be provided by the caller; no defaults are set here.
 
 def extract_box_from_text(s: str) -> List[int]:
     if not isinstance(s, str):
@@ -92,10 +94,21 @@ def compute_score(
     Returns:
       - float IoU for the single example.
     """
+    # Required knobs: alpha (0..1) and threshold (IoU cutoff)
+    if "alpha" not in kwargs:
+        raise ValueError("'alpha' must be provided in reward_kwargs (0..1) for mix reward")
+    if "threshold" not in kwargs:
+        raise ValueError("'threshold' must be provided in reward_kwargs for pass metric")
+
+    alpha = float(kwargs["alpha"])  # weight on pass
+    iou_threshold = float(kwargs["threshold"])  # pass threshold
+    if not (0.0 <= alpha <= 1.0):
+        raise ValueError(f"alpha must be in [0,1], got {alpha}")
+
     pb = extract_box_from_text(solution_str)
     if len(pb) != 4 or not isinstance(ground_truth, (list, tuple)) or len(ground_truth) != 4:
         return 0.0
-    # Use provided scale_bbox (bbox, width, height) if height/width available
+    # Use provided scale_bbox (bbox, width, height)
     if isinstance(extra_info, dict) and ("height" in extra_info and "width" in extra_info):
         h = extra_info["height"]
         w = extra_info["width"]
@@ -103,8 +116,10 @@ def compute_score(
         gt_box = scale_bbox(ground_truth, w, h)
     else:
         raise ValueError("Height and width must be provided in extra_info for scaling bounding boxes.")
-    if REWARD_TYPE == "pass@0.5_iou":
-        iou_val = float(_iou(to_box_tuple(pred_box), to_box_tuple(gt_box)))
-        return 1.0 if iou_val >= 0.5 else 0.0
-    else:
-        return float(_iou(to_box_tuple(pred_box), to_box_tuple(gt_box)))
+
+    iou_val = float(_iou(to_box_tuple(pred_box), to_box_tuple(gt_box)))
+    pass_val = 1.0 if iou_val >= iou_threshold else 0.0
+    return alpha * pass_val + (1.0 - alpha) * iou_val
+
+
+# Removed variant wrappers; use compute_score with explicit alpha and threshold.
