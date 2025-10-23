@@ -1,5 +1,5 @@
 export BASE_IMAGE_DIR="/storage/openpsi/" 
-model_path=${1:-"/storage/openpsi/models/internvl3_5_1b_grounding_rl/hf_merged_step580"}
+model_path=${1:-"/storage/openpsi/models/internvl3_5_1b_grounding_rl/trial4_sig_mixed_global_step_180/"}
 
 echo "Using model path: $model_path"
 model_name="$(basename "$model_path")"
@@ -23,17 +23,17 @@ for data_name in "${data_name_list[@]}"; do
 done
 
 # nohup python -m sglang.launch_server \
-#   --model-path  /storage/openpsi/models/InternVL3_5-241B-A28B   \
+#   --model-path  /storage/openpsi/models/Qwen3-VL-235B-A22B-Thinking    \
 #   --host 0.0.0.0 --port 30000 \
-#   --nnodes 2 --node-rank 1 \
-#   --dist-init-addr 33.180.167.175:50000 \
+#   --nnodes 2 --node-rank 0 \
+#   --dist-init-addr 33.180.165.62:50000 \
 #   --tp-size 16 \
 #   --dtype auto \
 #   --mem-fraction-static 0.7 \
-#   > /var/log/sglang_node1.log 2>&1 &
+#   > /var/log/sglang_node0.log 2>&1 &
 
 # nohup python -m sglang.launch_server \
-#   --model-path  /storage/openpsi/models/internvl3_5_1b_grounding_rl/hf_merged_step580 \
+#   --model-path  /storage/openpsi/models/internvl3_5_1b_grounding_rl/trial4_sig_mixed_global_step_180/ \
 #   --host 0.0.0.0 --port 30000 \
 #   --nnodes 1 --node-rank 0 \
 #   --dp-size 8 \
