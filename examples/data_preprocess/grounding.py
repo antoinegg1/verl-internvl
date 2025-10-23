@@ -7,7 +7,7 @@ Train JSON example:
 Test JSON example:
 {"image": "...", "sent": "...", "bbox": [x1,y1,x2,y2], "height": H, "width": W}
 """
-
+import numpy as np
 import argparse
 import os
 import re
@@ -81,7 +81,7 @@ if __name__ == "__main__":
             iou14 = float(ex.get("14b_model_iou", float("nan")))
         except Exception:
             return False
-        return (iou1 < 0.5) and (iou14 < iou1 + 1.0) and (iou14 > 0.5)
+        return (iou8 < 0.5) and (iou14 >= iou8 + 0.1) and (iou14 > 0.5)
 
     BASE_IMG_PATH = "/storage/openpsi/data/coco/train2014/"
 
@@ -175,11 +175,55 @@ if __name__ == "__main__":
     # Process train: only one file is expected; write to train.parquet
     if len(train_files) > 0:
         train_path = train_files[0]
-        ds = datasets.load_dataset("json", data_files=train_path)["train"]
-        ds = ds.filter(_keep_by_iou, num_proc=num_workers)
+        ds_all= datasets.load_dataset("json", data_files=train_path)["train"]
+        ds_neg = ds_all.filter(_keep_by_iou, num_proc=num_workers)
+        def _pos_filter(ex):
+            return float(ex.get("8b_model_iou", float("nan"))) >= 0.5
+
+
+        ds_pos = ds_all.filter(_pos_filter, num_proc=num_workers)
+        print(f"[grounding preprocess] positives (8B>=0.5) pool: {ds_pos.num_rows}")
+
+        bucket_specs = [
+            (0.5, 0.6,  2130),  # 25%
+            (0.6, 0.7,  2130),  # 25%
+            (0.7, 0.8,  1704),  # 20%
+            (0.8, 0.9,  1704),  # 20%
+            (0.9, 1.01,  853),  # 10%
+        ]
+
+        pos_parts = []
+        rng = np.random.default_rng(42)
+        for lo, hi, k in bucket_specs:
+            def _in_bucket(ex, lo=lo, hi=hi):
+                try:
+                    v = float(ex.get("8b_model_iou", float("nan")))
+                    return (v >= lo) and (v < hi)
+                except Exception:
+                    return False
+
+            ds_bucket = ds_pos.filter(_in_bucket, num_proc=num_workers)
+            n_bucket = ds_bucket.num_rows
+            take = min(k, n_bucket)
+            if take == 0:
+                print(f"[pos bucket {lo:.1f}-{hi:.1f}) available=0, take=0")
+                continue
+
+            idx = rng.choice(n_bucket, size=take, replace=False)
+            pos_parts.append(ds_bucket.select(sorted(idx)))
+            print(f"[pos bucket {lo:.1f}-{hi:.1f}) available={n_bucket}, take={take}")
+
+        if len(pos_parts) == 0:
+            raise RuntimeError("No positive samples selected; check input stats.")
+        ds_pos_sampled = datasets.concatenate_datasets(pos_parts)
+        print(f"[grounding preprocess] positives (sampled): {ds_pos_sampled.num_rows}")
+
+        ds = datasets.concatenate_datasets([ds_pos_sampled, ds_neg]).shuffle(seed=42)
+        print(f"[grounding preprocess] merged train size: {ds.num_rows}")
+
         ds = ds.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
-        print(f"[grounding preprocess] train samples: {len(ds)}")
-        ds.to_parquet(os.path.join(output_dir, "train_1B_v3.parquet"))
+        print(f"[grounding preprocess] train samples (final): {len(ds)}")
+        ds.to_parquet(os.path.join(output_dir, "train_8B_v3_mixed17k.parquet"))
 
     # Process test files: sample 10% from each and mix into a single dataset
     # mixed_slices = []

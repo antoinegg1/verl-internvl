@@ -14,7 +14,7 @@ mkdir -p "${RAY_TMPDIR}"
 
 # 任务名
 PROJECT_NAME=internvl3_5_1b_grounding_rl
-TASK_NAME="trial3_alpha1_0"
+TASK_NAME="trial3_alpha0_7"
 echo "TASK_NAME: $TASK_NAME"
 echo "PROJECT_NAME: $PROJECT_NAME"
 unset ROCR_VISIBLE_DEVICES || true
@@ -86,13 +86,14 @@ ray job submit --address=${RAY_ADDRESS} \
     data.reward_fn_key=data_source \
     custom_reward_function.path=/storage/openpsi/users/lichangye.lcy/VeRL_InternVL/verl/utils/reward_score/grounding.py \
     custom_reward_function.name=compute_score \
-    +custom_reward_function.reward_kwargs.alpha=1.0 \
+    +custom_reward_function.reward_kwargs.reward_type=mix \
+    +custom_reward_function.reward_kwargs.alpha=0.7 \
     +custom_reward_function.reward_kwargs.threshold=0.5 \
     actor_rollout_ref.model.path=/storage/openpsi/models/internvl3_1b_cot_thinking_with_text \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.optim.lr=3e-6 \
     actor_rollout_ref.actor.optim.warmup_style=cosine \
-    actor_rollout_ref.actor.optim.lr_warmup_steps=30 \
+    actor_rollout_ref.actor.optim.lr_warmup_steps=15 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=20480 \
@@ -135,8 +136,8 @@ ray job submit --address=${RAY_ADDRESS} \
     trainer.experiment_name=${TASK_NAME} \
     trainer.n_gpus_per_node=${NPROC_PER_NODE} \
     trainer.nnodes=${WORLD_SIZE} \
-    trainer.save_freq=10 \
-    trainer.test_freq=5 \
-    trainer.val_before_train=False \
+    trainer.save_freq=20 \
+    trainer.test_freq=10 \
+    trainer.val_before_train=True \
     trainer.rollout_data_dir=${OUTPUT_PATH}/rollouts \
-    trainer.total_epochs=30 2>&1 | tee ${JOBLOG}
+    trainer.total_epochs=15 2>&1 | tee ${JOBLOG}
