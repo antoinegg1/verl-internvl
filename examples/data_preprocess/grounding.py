@@ -79,9 +79,10 @@ if __name__ == "__main__":
             iou1 = float(ex.get("1b_model_iou", float("nan")))
             iou8 = float(ex.get("8b_model_iou", float("nan")))
             iou14 = float(ex.get("14b_model_iou", float("nan")))
+            iou241= float(ex.get("241b_model_iou", float("nan")))
         except Exception:
             return False
-        return (iou8 < 0.5) and (iou14 >= iou8 + 0.1) and (iou14 > 0.5)
+        return (iou1 < 0.5) and (iou241 > 0.5)
 
     BASE_IMG_PATH = "/storage/openpsi/data/coco/train2014/"
 
@@ -182,14 +183,14 @@ if __name__ == "__main__":
 
 
         ds_pos = ds_all.filter(_pos_filter, num_proc=num_workers)
-        print(f"[grounding preprocess] positives (8B>=0.5) pool: {ds_pos.num_rows}")
+        print(f"[grounding preprocess] positives (1B>=0.5) pool: {ds_pos.num_rows}")
 
         bucket_specs = [
-            (0.5, 0.6,  2130),  # 25%
-            (0.6, 0.7,  2130),  # 25%
-            (0.7, 0.8,  1704),  # 20%
-            (0.8, 0.9,  1704),  # 20%
-            (0.9, 1.01,  853),  # 10%
+            (0.50, 0.60,  2510),
+            (0.60, 0.70,  2510),
+            (0.70, 0.80,  2007),
+            (0.80, 0.90,  2007),
+            (0.90, 0.98,  1003),
         ]
 
         pos_parts = []
@@ -223,7 +224,7 @@ if __name__ == "__main__":
 
         ds = ds.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
         print(f"[grounding preprocess] train samples (final): {len(ds)}")
-        ds.to_parquet(os.path.join(output_dir, "train_8B_v3_mixed17k.parquet"))
+        ds.to_parquet(os.path.join(output_dir, "train_1B_v4_mixed40k.parquet"))
 
     # Process test files: sample 10% from each and mix into a single dataset
     # mixed_slices = []
