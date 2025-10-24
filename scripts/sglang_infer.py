@@ -320,7 +320,7 @@ def parse_args():
     args.add_argument("--model_path", required=True, help="SGLang 服务端加载的模型名/路径")
     args.add_argument("--output_dir", required=True)
     args.add_argument("--max_tokens", type=int, default=2048)
-    args.add_argument("--concurrency", type=int, default=128, help="并发请求数量上限")
+    args.add_argument("--concurrency", type=int, default=512, help="并发请求数量上限")
     args.add_argument("--flush_every", type=int, default=0, help="分块大小。0 或负数表示不分块（原始逻辑）")
     return args.parse_args()
 

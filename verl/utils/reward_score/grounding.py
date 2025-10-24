@@ -1,5 +1,7 @@
 import math
 import re
+import numpy as np  
+import json, random
 from typing import Any, List, Sequence, Tuple, Union
 
 
@@ -10,7 +12,73 @@ INT_RE = re.compile(r"-?\d+")
 # NOTE: This module now exposes a single compute_score that returns
 # a weighted mix between pass@threshold (binary) and IoU (continuous).
 # All knobs must be provided by the caller; no defaults are set here.
+# # 允许解析整数或小数（会转成 int）
+# _NUM_RE = re.compile(r'[-+]?\d*\.?\d+')
+# # 可选：解析 JSON 风格的 "bbox":[x1,y1,x2,y2]
+# _BBOX_JSON_RE = re.compile(r'"bbox"\s*:\s*\[([^\[\]]+)\]', flags=re.I)
+# # 可选：解析 <answer> ... </answer>
+# _ANSWER_RE = re.compile(r'<answer>(.*?)</answer>', flags=re.S | re.I)
 
+# def extract_box_from_text(s: str) -> List[int]:
+#     """
+#     解析顺序优先级：
+#     1) <answer>...</answer> 内的 "bbox":[...]（若有多处，取最后一个）
+#     2) <answer>...</answer> 内的 最后一对 [ ... ] 中的 4 个数
+#     3) 全文中的 "bbox":[...]（取最后一个）
+#     4) 全文中的 最后一对 [ ... ] 中的 4 个数
+#     解析后会：
+#       - 取前 4 个数为 (x1,y1,x2,y2)
+#       - 做坐标排序：保证 x1 < x2, y1 < y2
+#       - 做最小有效性检查（宽高>0）
+#     失败则返回 []
+#     """
+#     if not isinstance(s, str) or not s:
+#         return []
+
+#     def _try_extract_from_text(text: str) -> List[int]:
+#         # 先尝试 JSON 风格 "bbox":[...]
+#         mlist = _BBOX_JSON_RE.findall(text)
+#         candidate = None
+#         if mlist:
+#             candidate = mlist[-1]  # 取最后一个
+#         else:
+#             # 退化：找所有 [...] ，取最后一个
+#             bracket_groups = re.findall(r'\[([^\[\]]+)\]', text)
+#             if bracket_groups:
+#                 candidate = bracket_groups[-1]
+
+#         if candidate is None:
+#             return []
+
+#         nums = _NUM_RE.findall(candidate)
+#         if len(nums) < 4:
+#             return []
+
+#         try:
+#             x1, y1, x2, y2 = [int(float(v)) for v in nums[:4]]
+#             # 规范化：确保 x1<x2, y1<y2
+#             x1, x2 = sorted((x1, x2))
+#             y1, y2 = sorted((y1, y2))
+#             if x2 > x1 and y2 > y1:
+#                 return [x1, y1, x2, y2]
+#         except Exception:
+#             pass
+#         return []
+
+#     # 1/2) 只看 <answer> 内部
+#     am = _ANSWER_RE.search(s)
+#     if am:
+#         inner = am.group(1)
+#         box = _try_extract_from_text(inner)
+#         if box:
+#             return box
+
+#     # 3/4) 看全文
+#     box = _try_extract_from_text(s)
+#     if box:
+#         return box
+
+#     return []
 def extract_box_from_text(s: str) -> List[int]:
     if not isinstance(s, str):
         return []
@@ -129,6 +197,26 @@ def compute_score(
         reward = alpha * pass_val + (1.0 - alpha) * iou_val
     elif reward_type == "sigmoid":
         reward = 1.0 / (1.0 + math.exp(-8.0 * (iou_val - iou_threshold)))
+    elif reward_type == "normalized_exp":
+        K = np.log(16.0)  
+        DENOM = 1.0 - np.exp(-K) 
+        reward = (1.0 - np.exp(-K * iou_val)) / DENOM
+        if random.random() < 0.001:
+            case = {
+                "split": split,
+                "reward_type": reward_type,
+                "alpha": alpha,
+                "threshold": iou_threshold,
+                "image_size": {"w": w, "h": h},
+                "solution_str": solution_str,
+                "pb": list(pb),
+                "ground_truth": list(ground_truth),
+                "pred_box": list(pred_box),
+                "gt_box": list(gt_box),
+                "iou": iou_val,
+                "reward": reward,
+            }
+            print("[CASE]", json.dumps(case, ensure_ascii=False))
     elif reward_type == "eval":
         reward = 1.0 if iou_val >= iou_threshold else 0.0
     else:
