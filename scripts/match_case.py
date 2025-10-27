@@ -3,10 +3,18 @@
 """
 将 B(Arrow) 的 'sent' 与 'iou' 合并到 A(JSONL) 中（仅使用“图片同名 + 文本相似度”，不看 bbox/IoU）。
 """
+'''
+python scripts/match_case.py \
+--a /storage/openpsi/data/grounding_sft_v1/stage2_thinking_with_text_sft_train_10_24_3.jsonl \
+--b /storage/openpsi/data/grounding_sft_v1_result/internvl3_5_8b_v7_2_8B/refcoco_trainv4_result/data-00000-of-00001.arrow \
+--out /storage/openpsi/data/grounding_sft_v1/stage2_thinking_with_text_sft_train_10_26_1.jsonl \
+--sim_th 0.7
+'''
 import argparse
 import json
 import os
 import re
+
 import sys
 from tqdm import tqdm
 import glob
@@ -151,7 +159,7 @@ def main():
                         best = cand
 
             new_obj = dict(obj)
-            new_obj["1b_v7_2_model_iou"] = best["iou"]
+            new_obj["8b_v7_2_model_iou"] = best["iou"]
             fout.write(json.dumps(new_obj, ensure_ascii=False) + "\n")
             matched += 1
 

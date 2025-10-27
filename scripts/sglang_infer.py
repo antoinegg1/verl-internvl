@@ -10,7 +10,8 @@ import json
 import hashlib
 
 PROMPT_TEMPLATE = (
-    "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> "
+    # "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> " 
+    "Please provide the amodal bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>" # Amodal
     # "Locate {sent}, output its bbox coordinates using JSON format. " #for Qwen
 )
 
@@ -69,8 +70,8 @@ def compute_iou(boxA, boxB):
     return inter_area / (areaA + areaB - inter_area)
 
 async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tokens: int) -> Dict[str, Any]:
-    rec["image"] = rec["image"].replace("lustre/fsw/portfolios/nvr/users/yunhaof/datasets", "data").lstrip("/")
-    base_image_dir = "/storage/openpsi/"
+    rec["image"] = rec["image"].replace("lustre/fsw/portfolios/nvr/users/yunhaof/datasets", "").lstrip("/")
+    base_image_dir = "/storage/openpsi/data"
     path = os.path.join(base_image_dir, rec["image"])
     with Image.open(path) as img:
         w, h = img.size
@@ -108,7 +109,7 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
             )
             nums = re.findall(r'[+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?', ch.message.content, flags=re.S)
 
-            remap = True
+            remap = False
             if m:
                 bbox = [float(m.group(i)) for i in range(1, 5)]
                 scaled_bbox = scale_bbox(bbox, w, h) if remap else bbox
@@ -175,6 +176,16 @@ async def _run_range(ds, start, end, client, model, max_tokens, sem, desc="async
 
 async def main_async(args):
     ds = load_dataset("json", split='train', data_files=args.data_json)
+    if "sent" not in ds.column_names:
+        def extract_sent(row):
+            text = " ".join(x.get("value", "") for x in row["conversations"])
+            m = re.findall(r'<ref>\s*["“]?(.+?)["”]?\s*</ref>', text, flags=re.S)
+            return m[-1].strip() 
+        ds = ds.add_column("sent", [extract_sent(row) for row in ds])
+        cols = ds.column_names
+    if "bbox" not in cols and "modal_bbox" in cols:
+        ds = ds.add_column("bbox", ds["modal_bbox"])
+        cols = ds.column_names
     for need in ["image", "sent", "bbox", "width", "height"]:
         if need not in ds.column_names:
             raise ValueError(f"缺少字段 '{need}'；现有列：{ds.column_names}")

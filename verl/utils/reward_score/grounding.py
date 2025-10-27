@@ -12,93 +12,77 @@ INT_RE = re.compile(r"-?\d+")
 # NOTE: This module now exposes a single compute_score that returns
 # a weighted mix between pass@threshold (binary) and IoU (continuous).
 # All knobs must be provided by the caller; no defaults are set here.
-# # 允许解析整数或小数（会转成 int）
-# _NUM_RE = re.compile(r'[-+]?\d*\.?\d+')
-# # 可选：解析 JSON 风格的 "bbox":[x1,y1,x2,y2]
-# _BBOX_JSON_RE = re.compile(r'"bbox"\s*:\s*\[([^\[\]]+)\]', flags=re.I)
-# # 可选：解析 <answer> ... </answer>
-# _ANSWER_RE = re.compile(r'<answer>(.*?)</answer>', flags=re.S | re.I)
 
+_NUM_RE = re.compile(r'[-+]?\d*\.?\d+')
+_ANSWER_RE = re.compile(r'<answer>(.*?)</answer>', flags=re.S | re.I)
+
+def extract_box_from_text(s: str) -> List[float]:
+    if not isinstance(s, str) or not s:
+        return []
+
+    def _extract_from_text(text: str) -> List[float]:
+        boxes = re.findall(r'\[([^\[\]]+)\]', text)
+        if boxes:
+            # 取最后一个方括号内容
+            candidate = boxes[-1]
+            nums = _NUM_RE.findall(candidate)
+        else:
+            # 没有方括号时，取全文中的最后 4 个数字
+            nums = _NUM_RE.findall(text)
+            if len(nums) >= 4:
+                nums = nums[-4:]
+            else:
+                return []
+
+        if len(nums) < 4:
+            return []
+
+        vals: List[float] = []
+        for v in nums[:4]:
+            try:
+                x = float(v)
+            except Exception:
+                return []
+            if not math.isfinite(x):
+                return []  # 出现 inf/nan，直接判无效，交给上游跳过该样本
+            # 若你的坐标规范是 0~1000，这里 clamp；如果是 0~1，就把 1000 改成 1
+            if x < 0.0: x = 0.0
+            if x > 1000.0: x = 1000.0
+            vals.append(x)
+        
+        x1, y1, x2, y2 = vals
+        if x1 > x2: x1, x2 = x2, x1
+        if y1 > y2: y1, y2 = y2, y1
+        return [x1, y1, x2, y2]
+
+    ans_match = _ANSWER_RE.search(s)
+    if ans_match:
+        inner = ans_match.group(1)
+        box = _extract_from_text(inner)
+        if box:
+            return box
+
+    return _extract_from_text(s)
 # def extract_box_from_text(s: str) -> List[int]:
-#     """
-#     解析顺序优先级：
-#     1) <answer>...</answer> 内的 "bbox":[...]（若有多处，取最后一个）
-#     2) <answer>...</answer> 内的 最后一对 [ ... ] 中的 4 个数
-#     3) 全文中的 "bbox":[...]（取最后一个）
-#     4) 全文中的 最后一对 [ ... ] 中的 4 个数
-#     解析后会：
-#       - 取前 4 个数为 (x1,y1,x2,y2)
-#       - 做坐标排序：保证 x1 < x2, y1 < y2
-#       - 做最小有效性检查（宽高>0）
-#     失败则返回 []
-#     """
-#     if not isinstance(s, str) or not s:
+#     if not isinstance(s, str):
 #         return []
-
-#     def _try_extract_from_text(text: str) -> List[int]:
-#         # 先尝试 JSON 风格 "bbox":[...]
-#         mlist = _BBOX_JSON_RE.findall(text)
-#         candidate = None
-#         if mlist:
-#             candidate = mlist[-1]  # 取最后一个
-#         else:
-#             # 退化：找所有 [...] ，取最后一个
-#             bracket_groups = re.findall(r'\[([^\[\]]+)\]', text)
-#             if bracket_groups:
-#                 candidate = bracket_groups[-1]
-
-#         if candidate is None:
-#             return []
-
-#         nums = _NUM_RE.findall(candidate)
-#         if len(nums) < 4:
-#             return []
-
+#     # Prefer training format: <box>[x1, y1, x2, y2]</box>
+#     m = BOX_RE.search(s)
+#     if m:
 #         try:
-#             x1, y1, x2, y2 = [int(float(v)) for v in nums[:4]]
-#             # 规范化：确保 x1<x2, y1<y2
-#             x1, x2 = sorted((x1, x2))
-#             y1, y2 = sorted((y1, y2))
-#             if x2 > x1 and y2 > y1:
-#                 return [x1, y1, x2, y2]
+#             vals = [int(v.strip()) for v in m.group(1).split(",")]
+#             if len(vals) >= 4:
+#                 return vals[:4]
 #         except Exception:
 #             pass
-#         return []
-
-#     # 1/2) 只看 <answer> 内部
-#     am = _ANSWER_RE.search(s)
-#     if am:
-#         inner = am.group(1)
-#         box = _try_extract_from_text(inner)
-#         if box:
-#             return box
-
-#     # 3/4) 看全文
-#     box = _try_extract_from_text(s)
-#     if box:
-#         return box
-
+#     # Fallback: first four integers
+#     nums = INT_RE.findall(s)
+#     if len(nums) >= 4:
+#         try:
+#             return [int(nums[0]), int(nums[1]), int(nums[2]), int(nums[3])]
+#         except Exception:
+#             return []
 #     return []
-def extract_box_from_text(s: str) -> List[int]:
-    if not isinstance(s, str):
-        return []
-    # Prefer training format: <box>[x1, y1, x2, y2]</box>
-    m = BOX_RE.search(s)
-    if m:
-        try:
-            vals = [int(v.strip()) for v in m.group(1).split(",")]
-            if len(vals) >= 4:
-                return vals[:4]
-        except Exception:
-            pass
-    # Fallback: first four integers
-    nums = INT_RE.findall(s)
-    if len(nums) >= 4:
-        try:
-            return [int(nums[0]), int(nums[1]), int(nums[2]), int(nums[3])]
-        except Exception:
-            return []
-    return []
 
 
 def _iou(a: Box, b: Box) -> float:
@@ -201,7 +185,11 @@ def compute_score(
         K = np.log(16.0)  
         DENOM = 1.0 - np.exp(-K) 
         reward = (1.0 - np.exp(-K * iou_val)) / DENOM
-        if random.random() < 0.001:
+    elif reward_type == "eval":
+        reward = 1.0 if iou_val >= iou_threshold else 0.0
+    else:
+        raise ValueError("Unknown reward_type. Use 'mix', 'sigmoid', or 'raw'.")
+    if random.random() < 0.001:
             case = {
                 "split": split,
                 "reward_type": reward_type,
@@ -217,10 +205,6 @@ def compute_score(
                 "reward": reward,
             }
             print("[CASE]", json.dumps(case, ensure_ascii=False))
-    elif reward_type == "eval":
-        reward = 1.0 if iou_val >= iou_threshold else 0.0
-    else:
-        raise ValueError("Unknown reward_type. Use 'mix', 'sigmoid', or 'raw'.")
 
     return reward
 
