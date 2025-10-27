@@ -9,8 +9,9 @@ from typing import List, Dict, Any, Optional, Tuple
 import tqdm
 import torch.distributed as dist
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import AutoProcessor, AutoModelForCausalLM, AutoTokenizer, AutoModel
 from datasets import load_dataset 
+from PIL import Image
 PROMPT_TEMPLATE = (
     "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> " 
 )
@@ -124,16 +125,16 @@ class VLMWrapper:
     def __init__(self, model_path: str, device: str = None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.processor = AutoProcessor.from_pretrained(model_path)
+        self.processor = AutoProcessor.from_pretrained(model_path,trust_remote_code=True)
 
         if os.path.isdir(model_path):
             # Pin model to single device for DP inference
-            self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype="auto")
+            self.model = AutoModel.from_pretrained(model_path, torch_dtype="auto",trust_remote_code=True)
             self.model.to(self.device)
         else:
             raise ValueError(f"Model path '{model_path}' is not a valid directory.")
 
-        self.tokenizer = self.processor.tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path,trust_remote_code=True)
         self.eos_token_id = self.tokenizer.eos_token_id
 
     def build_inputs(self, image_path: Optional[str], text: str) -> VLMInputs:
@@ -143,14 +144,9 @@ class VLMWrapper:
             input_ids = self.tokenizer.encode(text, return_tensors="pt").to(self.device)
             return VLMInputs({"input_ids": input_ids}, prompt_len=input_ids.shape[-1])
 
-        # 多模态：AutoProcessor 统一打包
-        content = []
-        if image_path:
-            content.append({"type": "image", "path": image_path})
-        content.append({"type": "text", "text": text})
-
-        batch = [{"role": "user", "content": content}]
-        model_inputs = self.processor(batch, return_tensors="pt").to(self.device)
+        image = Image.open(image_path).convert("RGB")
+        model_inputs = self.processor(images=image,text=text, return_tensors="pt")
+        model_inputs = {k: v.to(self.device) for k, v in model_inputs.items()}
 
         # 取 prompt_len：对于 vision models，processor 会把 prompt 编到 input_ids 或者 pixel_values+input_ids
         # 这里用 input_ids 的长度作为 prompt_len（生成部分从这个长度之后开始）

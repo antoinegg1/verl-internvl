@@ -13,8 +13,8 @@ rm -rf "${RAY_TMPDIR}"
 mkdir -p "${RAY_TMPDIR}"
 
 # 任务名
-PROJECT_NAME=internvl3_5_1b_amodaling_rl
-TASK_NAME="trial2_direct_full"
+PROJECT_NAME=internvl3_1b_grounding_rl
+TASK_NAME="trial5_direct_zero"
 echo "TASK_NAME: $TASK_NAME"
 echo "PROJECT_NAME: $PROJECT_NAME"
 unset ROCR_VISIBLE_DEVICES || true
@@ -72,8 +72,8 @@ use_dynamic_bsz=True
 ray job submit --address=${RAY_ADDRESS} \
     -- python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_amodal_full.parquet \
-    data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_amodal.parquet \
+    data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_1B_v4_mixed50k.parquet \
+    data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_mixed.parquet \
     data.train_batch_size=${ROLLOUT_BATCH_SIZE} \
     data.max_prompt_length=4096 \
     data.max_response_length=1024 \
@@ -89,7 +89,7 @@ ray job submit --address=${RAY_ADDRESS} \
     +custom_reward_function.reward_kwargs.reward_type=mix \
     +custom_reward_function.reward_kwargs.alpha=0.5 \
     +custom_reward_function.reward_kwargs.threshold=0.5 \
-    actor_rollout_ref.model.path=/storage/openpsi/models/InternVL3_5-1B \
+    actor_rollout_ref.model.path=/storage/openpsi/models/InternVL3-1B \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.optim.lr=3e-6 \
     actor_rollout_ref.actor.optim.warmup_style=cosine \
@@ -114,7 +114,7 @@ ray job submit --address=${RAY_ADDRESS} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${TENSOR_PARALLEL} \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.temperature=0.7 \
+    actor_rollout_ref.rollout.temperature=0.9 \
     actor_rollout_ref.rollout.top_p=0.9 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
