@@ -9,15 +9,87 @@ from typing import List, Dict, Any, Optional, Tuple
 import tqdm
 import torch.distributed as dist
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM, AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel
 from datasets import load_dataset 
 from PIL import Image
+import torchvision.transforms as T
+from torchvision.transforms.functional import InterpolationMode
 PROMPT_TEMPLATE = (
     "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> " 
 )
 
 # Paths and parsing helpers
 BASE_IMAGE_DIR = "/storage/openpsi/data"
+
+# InternVL tiling preprocess defaults
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
+def build_transform(input_size: int):
+    transform = T.Compose([
+        T.Lambda(lambda img: img.convert('RGB') if img.mode != 'RGB' else img),
+        T.Resize((input_size, input_size), interpolation=InterpolationMode.BICUBIC),
+        T.ToTensor(),
+        T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+    ])
+    return transform
+
+def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_size):
+    best_ratio_diff = float('inf')
+    best_ratio = (1, 1)
+    area = width * height
+    for ratio in target_ratios:
+        target_aspect_ratio = ratio[0] / ratio[1]
+        ratio_diff = abs(aspect_ratio - target_aspect_ratio)
+        if ratio_diff < best_ratio_diff:
+            best_ratio_diff = ratio_diff
+            best_ratio = ratio
+        elif ratio_diff == best_ratio_diff:
+            if area > 0.5 * image_size * image_size * ratio[0] * ratio[1]:
+                best_ratio = ratio
+    return best_ratio
+
+def dynamic_preprocess(image: Image.Image, min_num=1, max_num=12, image_size=448, use_thumbnail=False):
+    orig_width, orig_height = image.size
+    aspect_ratio = orig_width / orig_height
+    target_ratios = set(
+        (i, j)
+        for n in range(min_num, max_num + 1)
+        for i in range(1, n + 1)
+        for j in range(1, n + 1)
+        if i * j <= max_num and i * j >= min_num
+    )
+    target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
+    target_aspect_ratio = find_closest_aspect_ratio(
+        aspect_ratio, target_ratios, orig_width, orig_height, image_size
+    )
+    target_width = image_size * target_aspect_ratio[0]
+    target_height = image_size * target_aspect_ratio[1]
+    blocks = target_aspect_ratio[0] * target_aspect_ratio[1]
+    resized_img = image.resize((target_width, target_height))
+    processed_images = []
+    for i in range(blocks):
+        box = (
+            (i % (target_width // image_size)) * image_size,
+            (i // (target_width // image_size)) * image_size,
+            ((i % (target_width // image_size)) + 1) * image_size,
+            ((i // (target_width // image_size)) + 1) * image_size,
+        )
+        split_img = resized_img.crop(box)
+        processed_images.append(split_img)
+    assert len(processed_images) == blocks
+    if use_thumbnail and len(processed_images) != 1:
+        thumbnail_img = image.resize((image_size, image_size))
+        processed_images.append(thumbnail_img)
+    return processed_images
+
+def load_image(image_file: str, input_size=448, max_num=12) -> torch.Tensor:
+    image = Image.open(image_file).convert('RGB')
+    transform = build_transform(input_size=input_size)
+    images = dynamic_preprocess(image, image_size=input_size, use_thumbnail=True, max_num=max_num)
+    pixel_values = [transform(img) for img in images]
+    pixel_values = torch.stack(pixel_values)
+    return pixel_values
 
 # Precompiled patterns for bbox extraction
 NUM_RE = r"([+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?)"
@@ -125,32 +197,49 @@ class VLMWrapper:
     def __init__(self, model_path: str, device: str = None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.processor = AutoProcessor.from_pretrained(model_path,trust_remote_code=True)
-
-        if os.path.isdir(model_path):
-            # Pin model to single device for DP inference
-            self.model = AutoModel.from_pretrained(model_path, torch_dtype="auto",trust_remote_code=True)
-            self.model.to(self.device)
-        else:
+        if not os.path.isdir(model_path):
             raise ValueError(f"Model path '{model_path}' is not a valid directory.")
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path,trust_remote_code=True)
+        # InternVL-style model and tokenizer
+        self.model = AutoModel.from_pretrained(
+            model_path,
+            torch_dtype="auto",
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+        ).eval().to(self.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_path, trust_remote_code=True, use_fast=False
+        )
         self.eos_token_id = self.tokenizer.eos_token_id
+        # Preprocess defaults
+        self.input_size = 448
+        self.max_tiles = 12
 
     def build_inputs(self, image_path: Optional[str], text: str) -> VLMInputs:
+        # InternVL-style: text via tokenizer; image -> pixel_values tiles
+        pixel_values = None
+        if image_path:
+            try:
+                pv = load_image(image_path, input_size=self.input_size, max_num=self.max_tiles)
+                pixel_values = pv.to(self.device)
+                # Cast to model dtype if needed
+                try:
+                    pixel_values = pixel_values.to(self.model.dtype)
+                except Exception:
+                    pass
+            except Exception:
+                pixel_values = None
 
-        if self.processor is None:
-            # 纯文本 fallback（部分模型可行）
-            input_ids = self.tokenizer.encode(text, return_tensors="pt").to(self.device)
-            return VLMInputs({"input_ids": input_ids}, prompt_len=input_ids.shape[-1])
+        # Ensure <image> tag when image is present
+        if pixel_values is not None and '<image>' not in text:
+            text = '<image>\n' + text
 
-        image = Image.open(image_path).convert("RGB")
-        model_inputs = self.processor(images=image,text=text, return_tensors="pt")
-        model_inputs = {k: v.to(self.device) for k, v in model_inputs.items()}
+        tok = self.tokenizer(text, return_tensors='pt')
+        model_inputs: Dict[str, torch.Tensor] = {k: v.to(self.device) for k, v in tok.items()}
+        if pixel_values is not None:
+            model_inputs['pixel_values'] = pixel_values
 
-        # 取 prompt_len：对于 vision models，processor 会把 prompt 编到 input_ids 或者 pixel_values+input_ids
-        # 这里用 input_ids 的长度作为 prompt_len（生成部分从这个长度之后开始）
-        prompt_len = model_inputs["input_ids"].shape[-1]
+        prompt_len = model_inputs['input_ids'].shape[-1]
         return VLMInputs(model_inputs=model_inputs, prompt_len=prompt_len)
 
     @torch.inference_mode()
