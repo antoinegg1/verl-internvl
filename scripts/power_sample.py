@@ -214,30 +214,58 @@ class VLMWrapper:
         # Preprocess defaults
         self.input_size = 448
         self.max_tiles = 12
+        # Ensure InternVL image context token is configured for generate()
+        self._ensure_img_ctx_token()
+
+    def _ensure_img_ctx_token(self):
+        cfg = getattr(self.model, "config", None)
+        token_str = None
+        if cfg is not None:
+            token_str = getattr(cfg, "img_context_token", None)
+        # try to find a plausible token in tokenizer specials
+        if not token_str:
+            specials = getattr(self.tokenizer, "additional_special_tokens", []) or []
+            for t in specials:
+                if isinstance(t, str) and ("image" in t.lower() or "img" in t.lower()):
+                    token_str = t
+                    break
+        if not token_str:
+            token_str = "<image>"
+
+        tok_id = self.tokenizer.convert_tokens_to_ids(token_str)
+        # if tokenizer doesn't know this token, register it and resize embeddings
+        if tok_id is None or tok_id == self.tokenizer.unk_token_id or (isinstance(tok_id, int) and tok_id < 0):
+            self.tokenizer.add_special_tokens({"additional_special_tokens": [token_str]})
+            if hasattr(self.model, "resize_token_embeddings"):
+                self.model.resize_token_embeddings(len(self.tokenizer))
+            tok_id = self.tokenizer.convert_tokens_to_ids(token_str)
+
+        if hasattr(self.model, "img_context_token_id") and isinstance(tok_id, int) and tok_id >= 0:
+            self.model.img_context_token_id = int(tok_id)
+        # keep token string for prompt construction
+        self.image_token_str = token_str
 
     def build_inputs(self, image_path: Optional[str], text: str) -> VLMInputs:
         # InternVL-style: text via tokenizer; image -> pixel_values tiles
         pixel_values = None
         if image_path:
-            try:
-                pv = load_image(image_path, input_size=self.input_size, max_num=self.max_tiles)
-                pixel_values = pv.to(self.device)
-                # Cast to model dtype if needed
-                try:
-                    pixel_values = pixel_values.to(self.model.dtype)
-                except Exception:
-                    pass
-            except Exception:
-                pixel_values = None
+            pv = load_image(image_path, input_size=self.input_size, max_num=self.max_tiles)
+            pixel_values = pv.to(self.device)
+            # Cast to model dtype if needed
+            pixel_values = pixel_values.to(self.model.dtype)
 
-        # Ensure <image> tag when image is present
-        if pixel_values is not None and '<image>' not in text:
-            text = '<image>\n' + text
+        # Ensure image context token in prompt when image is present
+        if pixel_values is not None:
+            tok_str = getattr(self, "image_token_str", "<image>")
+            if tok_str not in text:
+                text = f"{tok_str}\n" + text
 
         tok = self.tokenizer(text, return_tensors='pt')
         model_inputs: Dict[str, torch.Tensor] = {k: v.to(self.device) for k, v in tok.items()}
         if pixel_values is not None:
             model_inputs['pixel_values'] = pixel_values
+            # Some InternVL generate() variants expect num_patches_list to split tiles
+            model_inputs['num_patches_list'] = [int(pixel_values.shape[0])]
 
         prompt_len = model_inputs['input_ids'].shape[-1]
         return VLMInputs(model_inputs=model_inputs, prompt_len=prompt_len)
