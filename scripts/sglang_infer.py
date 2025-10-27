@@ -10,8 +10,8 @@ import json
 import hashlib
 
 PROMPT_TEMPLATE = (
-    # "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> " 
-    "Please provide the amodal bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>" # Amodal
+    "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> " 
+    # "Please provide the amodal bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>" # Amodal
     # "Locate {sent}, output its bbox coordinates using JSON format. " #for Qwen
 )
 
@@ -70,7 +70,7 @@ def compute_iou(boxA, boxB):
     return inter_area / (areaA + areaB - inter_area)
 
 async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tokens: int) -> Dict[str, Any]:
-    rec["image"] = rec["image"].replace("lustre/fsw/portfolios/nvr/users/yunhaof/datasets", "").lstrip("/")
+    rec["image"] = rec["image"].replace("data", "").lstrip("/")
     base_image_dir = "/storage/openpsi/data"
     path = os.path.join(base_image_dir, rec["image"])
     with Image.open(path) as img:
@@ -109,7 +109,7 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
             )
             nums = re.findall(r'[+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?', ch.message.content, flags=re.S)
 
-            remap = False
+            remap = True
             if m:
                 bbox = [float(m.group(i)) for i in range(1, 5)]
                 scaled_bbox = scale_bbox(bbox, w, h) if remap else bbox
@@ -176,6 +176,7 @@ async def _run_range(ds, start, end, client, model, max_tokens, sem, desc="async
 
 async def main_async(args):
     ds = load_dataset("json", split='train', data_files=args.data_json)
+    cols = ds.column_names
     if "sent" not in ds.column_names:
         def extract_sent(row):
             text = " ".join(x.get("value", "") for x in row["conversations"])
