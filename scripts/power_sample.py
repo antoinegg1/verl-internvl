@@ -217,19 +217,22 @@ class VLMWrapper:
         # Ensure InternVL image context token is configured for generate()
         self._ensure_img_ctx_token()
 
-    def _estimate_vision_tokens(self, num_tiles: int) -> int:
-        # Heuristic: tokens per tile = (input_size/patch_size)^2 + extra
+    def _tokens_per_tile(self) -> int:
         cfg = getattr(self.model, "config", None)
-        patch = None
-        if cfg is not None:
-            patch = getattr(cfg, "vision_patch_size", None) or getattr(cfg, "patch_size", None)
-        if not isinstance(patch, int) or patch <= 0:
-            patch = 32  # InternVL commonly uses 32 here for 448 -> 14x14 grid
-        grid = (self.input_size // patch) * (self.input_size // patch)
-        extra = 3
-        if cfg is not None:
-            extra = getattr(cfg, "vision_num_extra_tokens", getattr(cfg, "img_context_token_num", 3)) or 3
-        return int(num_tiles) * int(grid + int(extra))
+        tpt = None
+        # Prefer model attribute if provided by remote code
+        tpt = getattr(self.model, "img_context_token_num", None)
+        if tpt is None and cfg is not None:
+            tpt = getattr(cfg, "img_context_token_num", None)
+        # Fallback to conservative default 256 (observed in traces)
+        try:
+            tpt = int(tpt) if tpt is not None else 256
+        except Exception:
+            tpt = 256
+        return tpt
+
+    def _estimate_vision_tokens(self, num_tiles: int) -> int:
+        return int(num_tiles) * self._tokens_per_tile()
 
     def _ensure_img_ctx_token(self):
         cfg = getattr(self.model, "config", None)
@@ -271,10 +274,11 @@ class VLMWrapper:
         # Ensure image context token in prompt when image is present
         if pixel_values is not None:
             tok_str = getattr(self, "image_token_str", "<image>")
-            # Repeat context token to match expected vision tokens count
+            # Repeat context token to match expected vision tokens count exactly
             needed = self._estimate_vision_tokens(pixel_values.shape[0])
-            prefix = (tok_str + "\n") * max(1, needed)
-            text = prefix + text
+            if needed > 0:
+                # Avoid accidental duplicate if user already placed tokens; we use a clean prefix
+                text = (tok_str + "\n") * needed + text
 
         tok = self.tokenizer(text, return_tensors='pt')
         model_inputs: Dict[str, torch.Tensor] = {k: v.to(self.device) for k, v in tok.items()}
