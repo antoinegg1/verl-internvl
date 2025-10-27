@@ -6,8 +6,8 @@ set -x
 export RAY_MASTER_PORT=26379
 export RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
 # 任务名与输出目录
-export PROJECT_NAME="internvl3_5_1b_grounding_rl"
-TASK_NAME="trial4_norexp_mixed"
+export PROJECT_NAME="internvl3_5_8b_grounding_rl"
+TASK_NAME="trial6_8B_v7_2_mix_mixed"
 unset ROCR_VISIBLE_DEVICES || true
 unset HIP_VISIBLE_DEVICES || true
 export OUTPUT_PATH="${OUTPUT_PATH:-/storage/openpsi/models/${PROJECT_NAME}/${TASK_NAME}}"
@@ -15,7 +15,7 @@ export JOBLOG="${JOBLOG:-${OUTPUT_PATH}/training.log}"
 RAY_WORKING_DIR="${RAY_WORKING_DIR:-${OUTPUT_PATH}/ray_working_dir}"
 mkdir -p "${OUTPUT_PATH}" "${RAY_WORKING_DIR}"
 
-export RAY_ADDRESS=33.180.160.252:26379
+export RAY_ADDRESS=33.180.162.187:26379
 
 # 可选查看集群状态（不影响已运行的 head）
 ray status || true
@@ -35,11 +35,11 @@ echo "All previous jobs cleared."
 export NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:-8}"
 export MICRO_TRAIN_BATCH_SIZE="${MICRO_TRAIN_BATCH_SIZE:-16}"
 export MICRO_ROLLOUT_BATCH_SIZE="${MICRO_ROLLOUT_BATCH_SIZE:-16}"
-export ROLLOUT_BATCH_SIZE="${ROLLOUT_BATCH_SIZE:-512}"
-export N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-16}"
+export ROLLOUT_BATCH_SIZE="${ROLLOUT_BATCH_SIZE:-128}"
+export N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-32}"
 export TENSOR_PARALLEL="${TENSOR_PARALLEL:-1}"
 export SEQUENCE_PARALLEL="${SEQUENCE_PARALLEL:-1}"
-export PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-512}"
+export PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-128}"
 # WORLD_SIZE=节点数量（含 head）。多机自行设置，如： WORLD_SIZE=4 ./submit_job.sh
 export WORLD_SIZE="${WORLD_SIZE:-4}"
 
@@ -65,7 +65,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   --runtime-env-json="$RUNTIME_ENV_JSON" \
   -- python3 -m verl.trainer.main_ppo \
   algorithm.adv_estimator=grpo \
-  data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_1B_v4_mixed40k.parquet \
+  data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_8B_v7_2_mixed12k.parquet\
   data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_mixed.parquet \
   data.train_batch_size="${ROLLOUT_BATCH_SIZE}" \
   data.max_prompt_length=4096 \
@@ -79,10 +79,10 @@ ray job submit --address="${RAY_ADDRESS}" \
   data.reward_fn_key=data_source \
   custom_reward_function.path=/storage/openpsi/users/lichangye.lcy/VeRL_InternVL/verl/utils/reward_score/grounding.py \
   custom_reward_function.name=compute_score \
-  +custom_reward_function.reward_kwargs.alpha=0.7 \
+  +custom_reward_function.reward_kwargs.alpha=0.5 \
   +custom_reward_function.reward_kwargs.threshold=0.5 \
-  +custom_reward_function.reward_kwargs.reward_type=normalized_exp \
-  actor_rollout_ref.model.path=/storage/openpsi/models/internvl3_5_1b_v7_2 \
+  +custom_reward_function.reward_kwargs.reward_type=mix \
+  actor_rollout_ref.model.path=/storage/openpsi/models/internvl3_5_8b_v7_2 \
   actor_rollout_ref.model.trust_remote_code=True \
   actor_rollout_ref.actor.optim.lr=3e-6 \
   actor_rollout_ref.actor.optim.warmup_style=cosine \
@@ -99,10 +99,10 @@ ray job submit --address="${RAY_ADDRESS}" \
   actor_rollout_ref.actor.kl_loss_type=low_var_kl \
   actor_rollout_ref.actor.entropy_coeff=0.01 \
   actor_rollout_ref.actor.policy_loss.loss_mode=gspo \
-  actor_rollout_ref.model.enable_gradient_checkpointing=False \
+  actor_rollout_ref.model.enable_gradient_checkpointing=True \
   actor_rollout_ref.actor.fsdp_config.fsdp_size=16 \
-  actor_rollout_ref.actor.fsdp_config.param_offload=False  \
-  actor_rollout_ref.actor.fsdp_config.optimizer_offload=False  \
+  actor_rollout_ref.actor.fsdp_config.param_offload=True  \
+  actor_rollout_ref.actor.fsdp_config.optimizer_offload=True  \
   actor_rollout_ref.actor.ulysses_sequence_parallel_size="${SEQUENCE_PARALLEL}" \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu="${MICRO_ROLLOUT_BATCH_SIZE}" \
   actor_rollout_ref.rollout.tensor_model_parallel_size="${TENSOR_PARALLEL}" \
@@ -115,7 +115,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   actor_rollout_ref.rollout.free_cache_engine=True \
   actor_rollout_ref.rollout.n="${N_SAMPLES_PER_PROMPT}" \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu="${MICRO_TRAIN_BATCH_SIZE}" \
-  actor_rollout_ref.ref.fsdp_config.param_offload=False \
+  actor_rollout_ref.ref.fsdp_config.param_offload=True \
   actor_rollout_ref.ref.ulysses_sequence_parallel_size="${SEQUENCE_PARALLEL}" \
   actor_rollout_ref.actor.loss_agg_mode=token-mean \
   actor_rollout_ref.rollout.val_kwargs.n=1 \
@@ -133,7 +133,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   trainer.test_freq=5 \
   trainer.val_before_train=True \
   trainer.rollout_data_dir="${OUTPUT_PATH}/rollouts" \
-  trainer.total_epochs=15 2>&1 | tee "${JOBLOG}"
+  trainer.total_epochs=10 2>&1 | tee "${JOBLOG}"
 
 # trainer.resume_mode=resume_path \
 # trainer.resume_from_path=/storage/openpsi/models/internvl3_5_1b_grounding_rl/trial4_sig_mixed/global_step_180 \
