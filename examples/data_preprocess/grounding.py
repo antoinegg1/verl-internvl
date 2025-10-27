@@ -76,15 +76,16 @@ if __name__ == "__main__":
     # Define a simple per-row filter based on model IoUs
     def _keep_by_iou(ex):
         try:
-            iou1 = float(ex.get("1b_model_iou", float("nan")))
-            iou8 = float(ex.get("8b_model_iou", float("nan")))
-            iou14 = float(ex.get("14b_model_iou", float("nan")))
-            iou241= float(ex.get("241b_model_iou", float("nan")))
-        except Exception:
+            # iou1 = float(ex["1b_v12_800itr_iou"])
+            iou8 = float(ex["8b_v7_2_model_iou"])
+            # iou14 = float(ex["14b_model_iou"])
+            iou241= float(ex["241b_model_iou"])
+        except Exception as e:
+            print(f"[Warning] Invalid IoU values: {e}")
             return False
-        return (iou1 < 0.5) and (iou241 > 0.5)
+        return (iou8 < 0.5) and (iou241 > 0.5)
 
-    BASE_IMG_PATH = "/storage/openpsi/data/coco/train2014/"
+    BASE_IMG_PATH = "/storage/openpsi/data/"
 
     # Convert pixel-space bbox to a 0..1000 grid (float) using width/height
     def _bbox_px_to_norm_1000(bbox, w: int, h: int):
@@ -103,8 +104,7 @@ if __name__ == "__main__":
             conversation = example.pop("conversations")
             question_raw = conversation[0]["value"]
             answer_raw = conversation[1]["value"]
-            img_name = os.path.basename(example["image"])  # only filename
-            img_path = os.path.join(BASE_IMG_PATH, img_name)
+            img_path = os.path.join(BASE_IMG_PATH, example["image"])
 
             if not os.path.exists(img_path):
                 print(f"[Warning] Image not found: {img_path}")
@@ -142,8 +142,7 @@ if __name__ == "__main__":
     # Map function for test-style records: {image, sent, bbox, height, width}
     def make_map_fn_test():
         def process_fn(example, idx):
-            img_name = os.path.basename(example["image"])
-            img_path = os.path.join(BASE_IMG_PATH, img_name)
+            img_path = os.path.join(BASE_IMG_PATH, example["image"])
             sent = example["sent"]
             bbox = example["bbox"]
             H = example["height"]
@@ -177,31 +176,30 @@ if __name__ == "__main__":
     if len(train_files) > 0:
         train_path = train_files[0]
         ds_all= datasets.load_dataset("json", data_files=train_path)["train"]
+        ds = ds_all.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
         ds_neg = ds_all.filter(_keep_by_iou, num_proc=num_workers)
+        print(f"[grounding preprocess] neg (8B<0.5) pool: {ds_neg.num_rows}")
         def _pos_filter(ex):
-            return float(ex.get("8b_model_iou", float("nan"))) >= 0.5
+            return float(ex["8b_v7_2_model_iou"]) >= 0.5
 
 
         ds_pos = ds_all.filter(_pos_filter, num_proc=num_workers)
-        print(f"[grounding preprocess] positives (1B>=0.5) pool: {ds_pos.num_rows}")
+        print(f"[grounding preprocess] positives (8B>=0.5) pool: {ds_pos.num_rows}")
 
         bucket_specs = [
-            (0.50, 0.60,  2510),
-            (0.60, 0.70,  2510),
-            (0.70, 0.80,  2007),
-            (0.80, 0.90,  2007),
-            (0.90, 0.98,  1003),
+            (0.50, 0.60,  1517),
+            (0.60, 0.70,  1214),
+            (0.70, 0.80,  1213),
+            (0.80, 0.90,  1213),
+            (0.90, 0.98,  910),
         ]
 
         pos_parts = []
         rng = np.random.default_rng(42)
         for lo, hi, k in bucket_specs:
             def _in_bucket(ex, lo=lo, hi=hi):
-                try:
-                    v = float(ex.get("8b_model_iou", float("nan")))
-                    return (v >= lo) and (v < hi)
-                except Exception:
-                    return False
+                v = float(ex["8b_v7_2_model_iou"])
+                return (v >= lo) and (v < hi)
 
             ds_bucket = ds_pos.filter(_in_bucket, num_proc=num_workers)
             n_bucket = ds_bucket.num_rows
@@ -224,15 +222,16 @@ if __name__ == "__main__":
 
         ds = ds.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
         print(f"[grounding preprocess] train samples (final): {len(ds)}")
-        ds.to_parquet(os.path.join(output_dir, "train_1B_v4_mixed40k.parquet"))
+        ds.to_parquet(os.path.join(output_dir, "train_amodal_full.parquet"))
 
-    # Process test files: sample 10% from each and mix into a single dataset
+    # # Process test files: sample 10% from each and mix into a single dataset
     # mixed_slices = []
     # for file_path in test_files:
     #     ds = datasets.load_dataset("json", data_files=file_path)["train"]
-    #     ds = ds.map(function=make_map_fn_test(), with_indices=True, num_proc=num_workers)
+    #     # ds = ds.map(function=make_map_fn_test(), with_indices=True, num_proc=num_workers)
+    #     ds = ds.map(function=make_map_fn("test"), with_indices=True, num_proc=num_workers)
     #     n = len(ds)
-    #     k = max(1, int(n * 0.1)) if n > 0 else 0
+    #     k = max(1, int(n * 1.0)) if n > 0 else 0
     #     if k > 0:
     #         ds_slice = ds.shuffle(seed=42).select(range(k))
     #         mixed_slices.append(ds_slice)
@@ -240,7 +239,7 @@ if __name__ == "__main__":
     # if len(mixed_slices) > 0:
     #     mixed = datasets.concatenate_datasets(mixed_slices).shuffle(seed=42)
     #     print(f"[grounding preprocess] test samples (mixed 10% per file): {len(mixed)}")
-    #     mixed.to_parquet(os.path.join(output_dir, "test_mixed.parquet"))
+    #     mixed.to_parquet(os.path.join(output_dir, "test_amodal.parquet"))
     # else:
     #     print("[grounding preprocess] no test samples produced (no input or all empty)")
 

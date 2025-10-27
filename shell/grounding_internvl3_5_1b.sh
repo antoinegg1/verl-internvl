@@ -13,8 +13,8 @@ rm -rf "${RAY_TMPDIR}"
 mkdir -p "${RAY_TMPDIR}"
 
 # 任务名
-PROJECT_NAME=internvl3_5_1b_grounding_rl
-TASK_NAME="trial3_alpha0_7"
+PROJECT_NAME=internvl3_5_1b_amodaling_rl
+TASK_NAME="trial2_direct_full"
 echo "TASK_NAME: $TASK_NAME"
 echo "PROJECT_NAME: $PROJECT_NAME"
 unset ROCR_VISIBLE_DEVICES || true
@@ -58,11 +58,11 @@ echo "Dashboard: http://$(hostname -I | awk '{print $1}'):${RAY_DASHBOARD_PORT}"
 NUM_GPUS_PER_NODE=8
 MICRO_TRAIN_BATCH_SIZE=32
 MICRO_ROLLOUT_BATCH_SIZE=32
-ROLLOUT_BATCH_SIZE=256
-N_SAMPLES_PER_PROMPT=16
+ROLLOUT_BATCH_SIZE=128
+N_SAMPLES_PER_PROMPT=32
 TENSOR_PARALLEL=1
 SEQUENCE_PARALLEL=1
-PPO_MINI_BATCH_SIZE=256
+PPO_MINI_BATCH_SIZE=128
 WORLD_SIZE=1
 
 NPROC_PER_NODE=8
@@ -72,8 +72,8 @@ use_dynamic_bsz=True
 ray job submit --address=${RAY_ADDRESS} \
     -- python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train.parquet \
-    data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_mixed.parquet \
+    data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_amodal_full.parquet \
+    data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_amodal.parquet \
     data.train_batch_size=${ROLLOUT_BATCH_SIZE} \
     data.max_prompt_length=4096 \
     data.max_response_length=1024 \
@@ -87,9 +87,9 @@ ray job submit --address=${RAY_ADDRESS} \
     custom_reward_function.path=/storage/openpsi/users/lichangye.lcy/VeRL_InternVL/verl/utils/reward_score/grounding.py \
     custom_reward_function.name=compute_score \
     +custom_reward_function.reward_kwargs.reward_type=mix \
-    +custom_reward_function.reward_kwargs.alpha=0.7 \
+    +custom_reward_function.reward_kwargs.alpha=0.5 \
     +custom_reward_function.reward_kwargs.threshold=0.5 \
-    actor_rollout_ref.model.path=/storage/openpsi/models/internvl3_1b_cot_thinking_with_text \
+    actor_rollout_ref.model.path=/storage/openpsi/models/InternVL3_5-1B \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.optim.lr=3e-6 \
     actor_rollout_ref.actor.optim.warmup_style=cosine \
@@ -136,8 +136,8 @@ ray job submit --address=${RAY_ADDRESS} \
     trainer.experiment_name=${TASK_NAME} \
     trainer.n_gpus_per_node=${NPROC_PER_NODE} \
     trainer.nnodes=${WORLD_SIZE} \
-    trainer.save_freq=20 \
-    trainer.test_freq=10 \
+    trainer.save_freq=10 \
+    trainer.test_freq=5 \
     trainer.val_before_train=True \
     trainer.rollout_data_dir=${OUTPUT_PATH}/rollouts \
-    trainer.total_epochs=15 2>&1 | tee ${JOBLOG}
+    trainer.total_epochs=5 2>&1 | tee ${JOBLOG}
