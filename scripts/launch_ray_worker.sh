@@ -1,4 +1,4 @@
-export HEAD_IP="33.180.160.252"
+export HEAD_IP="33.180.166.187"
 export RAY_PORT=26379
 
 
