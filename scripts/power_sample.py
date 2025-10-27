@@ -217,6 +217,20 @@ class VLMWrapper:
         # Ensure InternVL image context token is configured for generate()
         self._ensure_img_ctx_token()
 
+    def _estimate_vision_tokens(self, num_tiles: int) -> int:
+        # Heuristic: tokens per tile = (input_size/patch_size)^2 + extra
+        cfg = getattr(self.model, "config", None)
+        patch = None
+        if cfg is not None:
+            patch = getattr(cfg, "vision_patch_size", None) or getattr(cfg, "patch_size", None)
+        if not isinstance(patch, int) or patch <= 0:
+            patch = 32  # InternVL commonly uses 32 here for 448 -> 14x14 grid
+        grid = (self.input_size // patch) * (self.input_size // patch)
+        extra = 3
+        if cfg is not None:
+            extra = getattr(cfg, "vision_num_extra_tokens", getattr(cfg, "img_context_token_num", 3)) or 3
+        return int(num_tiles) * int(grid + int(extra))
+
     def _ensure_img_ctx_token(self):
         cfg = getattr(self.model, "config", None)
         token_str = None
@@ -257,8 +271,10 @@ class VLMWrapper:
         # Ensure image context token in prompt when image is present
         if pixel_values is not None:
             tok_str = getattr(self, "image_token_str", "<image>")
-            if tok_str not in text:
-                text = f"{tok_str}\n" + text
+            # Repeat context token to match expected vision tokens count
+            needed = self._estimate_vision_tokens(pixel_values.shape[0])
+            prefix = (tok_str + "\n") * max(1, needed)
+            text = prefix + text
 
         tok = self.tokenizer(text, return_tensors='pt')
         model_inputs: Dict[str, torch.Tensor] = {k: v.to(self.device) for k, v in tok.items()}
