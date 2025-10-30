@@ -177,6 +177,9 @@ if __name__ == "__main__":
         train_path = train_files[0]
         ds_all= datasets.load_dataset("json", data_files=train_path)["train"]
         ds = ds_all.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
+
+        print(f"[grounding preprocess] train samples (final, all): {len(ds)}")
+        ds.to_parquet(os.path.join(output_dir, "train_amodal_full.parquet"))
         ds_neg = ds_all.filter(_keep_by_iou, num_proc=num_workers)
         print(f"[grounding preprocess] neg (8B<0.5) pool: {ds_neg.num_rows}")
         def _pos_filter(ex):

@@ -49,6 +49,60 @@ def scale_bbox(bbox, w, h):
     if y1 == y2 and h > 1: y2 = min(y1 + 1, h - 1)
     return [float(x1), float(y1), float(x2), float(y2)]
 
+def inv_scale_bbox(bbox, w, h):
+    """
+    将像素坐标系下的 bbox 映射到 0~1000 的归一化坐标系（整数刻度）。
+    - 输入 bbox: [x1, y1, x2, y2]（像素）
+    - w, h: 图像宽高（像素）
+    - 输出: [x1, y1, x2, y2]（0~1000 区间，浮点返回以与原函数风格一致）
+    """
+    x1, y1, x2, y2 = bbox
+
+    if w > 0 and h > 0:
+        x1 = max(0, min(round(x1), w - 1))
+        x2 = max(0, min(round(x2), w - 1))
+        y1 = max(0, min(round(y1), h - 1))
+        y2 = max(0, min(round(y2), h - 1))
+    if x1 > x2: x1, x2 = x2, x1
+    if y1 > y2: y1, y2 = y2, y1
+
+    if w > 0:
+        nx1 = round(x1 * 1000.0 / w)
+        nx2 = round(x2 * 1000.0 / w)
+    else:
+        nx1, nx2 = 0, 1000
+
+    if h > 0:
+        ny1 = round(y1 * 1000.0 / h)
+        ny2 = round(y2 * 1000.0 / h)
+    else:
+        ny1, ny2 = 0, 1000
+
+    nx1 = max(0, min(int(nx1), 1000))
+    nx2 = max(0, min(int(nx2), 1000))
+    ny1 = max(0, min(int(ny1), 1000))
+    ny2 = max(0, min(int(ny2), 1000))
+
+    if nx1 == nx2 and w > 1: nx2 = min(nx1 + 1, 1000)
+    if ny1 == ny2 and h > 1: ny2 = min(ny1 + 1, 1000)
+
+    return [float(nx1), float(ny1), float(nx2), float(ny2)]
+
+def apply_remap(bbox, w, h, remap_mode):
+    # 规范化
+    mode = remap_mode 
+    if isinstance(mode, str):
+        mode = mode.strip().lower()
+
+    if mode == "scale":
+        return scale_bbox(bbox, w, h)
+    elif mode == "inverse":
+        return inv_scale_bbox(bbox, w, h)
+    elif mode == "keep" or mode in (None, "", False):
+        return bbox
+    else:
+        raise ValueError(f"Unknown remap mode: {remap_mode}")
+
 def compute_iou(boxA, boxB):
     """计算两个bbox的IoU"""
     if boxA is None or boxB is None:
@@ -109,16 +163,16 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
             )
             nums = re.findall(r'[+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?', ch.message.content, flags=re.S)
 
-            remap = True
+            remap="keep"
             if m:
                 bbox = [float(m.group(i)) for i in range(1, 5)]
-                scaled_bbox = scale_bbox(bbox, w, h) if remap else bbox
+                scaled_bbox = apply_remap(bbox, w, h, remap)
             elif m2:
                 bbox = [float(m2.group(i)) for i in range(1, 5)]
-                scaled_bbox = scale_bbox(bbox, w, h) if remap else bbox
+                scaled_bbox = apply_remap(bbox, w, h, remap)
             elif len(nums) >= 4:
                 bbox = list(map(float, nums[-4:]))
-                scaled_bbox = scale_bbox(bbox, w, h) if remap else bbox
+                scaled_bbox = apply_remap(bbox, w, h, remap)
             else:
                 print(f"bbox_2d not found: {ch.message.content}")
                 scaled_bbox = None
@@ -187,6 +241,19 @@ async def main_async(args):
     if "bbox" not in cols and "modal_bbox" in cols:
         ds = ds.add_column("bbox", ds["modal_bbox"])
         cols = ds.column_names
+    elif "bbox" not in cols and "conversations" in cols:
+        def extract_bbox(row):
+            text = " ".join(x.get("value", "") for x in row["conversations"])
+            m = re.findall(r'<box>\s*\[([^\]]+)\]\s*</box>', text, flags=re.S)
+            nums = re.findall(r'-?\d+', m[-1])
+            return {"bbox": list(map(float, nums))}
+        ds = ds.map(
+            extract_bbox,
+            num_proc=64,
+            desc="Adding column: bbox"
+        )
+        cols = ds.column_names
+
     for need in ["image", "sent", "bbox", "width", "height"]:
         if need not in ds.column_names:
             raise ValueError(f"缺少字段 '{need}'；现有列：{ds.column_names}")
@@ -194,7 +261,7 @@ async def main_async(args):
     if not args.output_dir:
         raise ValueError("--output_dir 必填")
     os.makedirs(args.output_dir, exist_ok=True)
-
+    print("start")
     client = AsyncOpenAI(base_url=args.endpoint.rstrip("/") + "/v1", api_key="none")
     sem = asyncio.Semaphore(args.concurrency)
 
@@ -331,8 +398,8 @@ def parse_args():
     args.add_argument("--endpoint", default="http://127.0.0.1:30000")
     args.add_argument("--model_path", required=True, help="SGLang 服务端加载的模型名/路径")
     args.add_argument("--output_dir", required=True)
-    args.add_argument("--max_tokens", type=int, default=2048)
-    args.add_argument("--concurrency", type=int, default=512, help="并发请求数量上限")
+    args.add_argument("--max_tokens", type=int, default=1024)
+    args.add_argument("--concurrency", type=int, default=128, help="并发请求数量上限")
     args.add_argument("--flush_every", type=int, default=0, help="分块大小。0 或负数表示不分块（原始逻辑）")
     return args.parse_args()
 

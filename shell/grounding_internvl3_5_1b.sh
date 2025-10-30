@@ -13,8 +13,8 @@ rm -rf "${RAY_TMPDIR}"
 mkdir -p "${RAY_TMPDIR}"
 
 # 任务名
-PROJECT_NAME=internvl3_1b_grounding_rl
-TASK_NAME="trial5_direct_zero"
+PROJECT_NAME=internvl3_1b_amodaling_rl
+TASK_NAME="trial1"
 echo "TASK_NAME: $TASK_NAME"
 echo "PROJECT_NAME: $PROJECT_NAME"
 unset ROCR_VISIBLE_DEVICES || true
@@ -59,7 +59,7 @@ NUM_GPUS_PER_NODE=8
 MICRO_TRAIN_BATCH_SIZE=32
 MICRO_ROLLOUT_BATCH_SIZE=32
 ROLLOUT_BATCH_SIZE=128
-N_SAMPLES_PER_PROMPT=32
+N_SAMPLES_PER_PROMPT=16
 TENSOR_PARALLEL=1
 SEQUENCE_PARALLEL=1
 PPO_MINI_BATCH_SIZE=128
@@ -72,8 +72,8 @@ use_dynamic_bsz=True
 ray job submit --address=${RAY_ADDRESS} \
     -- python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_1B_v4_mixed50k.parquet \
-    data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_mixed.parquet \
+    data.train_files=/storage/openpsi/data/amodal_data_preprocessed/train_amodal_v5.parquet \
+    data.val_files=/storage/openpsi/data/amodal_data_preprocessed/val_amodal_v5.parquet \
     data.train_batch_size=${ROLLOUT_BATCH_SIZE} \
     data.max_prompt_length=4096 \
     data.max_response_length=1024 \
@@ -89,7 +89,7 @@ ray job submit --address=${RAY_ADDRESS} \
     +custom_reward_function.reward_kwargs.reward_type=mix \
     +custom_reward_function.reward_kwargs.alpha=0.5 \
     +custom_reward_function.reward_kwargs.threshold=0.5 \
-    actor_rollout_ref.model.path=/storage/openpsi/models/InternVL3-1B \
+    actor_rollout_ref.model.path=/storage/openpsi/models/amodal_model/amodal_1b_v13_1epoch \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.optim.lr=3e-6 \
     actor_rollout_ref.actor.optim.warmup_style=cosine \

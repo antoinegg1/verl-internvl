@@ -6,16 +6,16 @@ set -x
 export RAY_MASTER_PORT=26379
 export RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
 # 任务名与输出目录
-export PROJECT_NAME="internvl3_5_8b_grounding_rl"
-TASK_NAME="trial6_8B_v7_2_mix_mixed"
+export PROJECT_NAME="internvl3_8b_amodaling_rl"
+TASK_NAME="trial2_rl"
 unset ROCR_VISIBLE_DEVICES || true
 unset HIP_VISIBLE_DEVICES || true
 export OUTPUT_PATH="${OUTPUT_PATH:-/storage/openpsi/models/${PROJECT_NAME}/${TASK_NAME}}"
-export JOBLOG="${JOBLOG:-${OUTPUT_PATH}/training.log}"
+export JOBLOG="${JOBLOG:-${OUTPUT_PATH}/traininnvitopg.log}"
 RAY_WORKING_DIR="${RAY_WORKING_DIR:-${OUTPUT_PATH}/ray_working_dir}"
 mkdir -p "${OUTPUT_PATH}" "${RAY_WORKING_DIR}"
 
-export RAY_ADDRESS=33.180.162.187:26379
+export RAY_ADDRESS=33.180.166.187:26379
 
 # 可选查看集群状态（不影响已运行的 head）
 ray status || true
@@ -35,13 +35,13 @@ echo "All previous jobs cleared."
 export NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:-8}"
 export MICRO_TRAIN_BATCH_SIZE="${MICRO_TRAIN_BATCH_SIZE:-16}"
 export MICRO_ROLLOUT_BATCH_SIZE="${MICRO_ROLLOUT_BATCH_SIZE:-16}"
-export ROLLOUT_BATCH_SIZE="${ROLLOUT_BATCH_SIZE:-128}"
-export N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-32}"
+export ROLLOUT_BATCH_SIZE="${ROLLOUT_BATCH_SIZE:-256}"
+export N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-16}"
 export TENSOR_PARALLEL="${TENSOR_PARALLEL:-1}"
 export SEQUENCE_PARALLEL="${SEQUENCE_PARALLEL:-1}"
-export PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-128}"
+export PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-256}"
 # WORLD_SIZE=节点数量（含 head）。多机自行设置，如： WORLD_SIZE=4 ./submit_job.sh
-export WORLD_SIZE="${WORLD_SIZE:-4}"
+export WORLD_SIZE="${WORLD_SIZE:-2}"
 
 export NPROC_PER_NODE="${NPROC_PER_NODE:-${NUM_GPUS_PER_NODE}}"
 export use_dynamic_bsz="${use_dynamic_bsz:-True}"
@@ -65,8 +65,8 @@ ray job submit --address="${RAY_ADDRESS}" \
   --runtime-env-json="$RUNTIME_ENV_JSON" \
   -- python3 -m verl.trainer.main_ppo \
   algorithm.adv_estimator=grpo \
-  data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_8B_v7_2_mixed12k.parquet\
-  data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_mixed.parquet \
+  data.train_files=/storage/openpsi/data/amodal_data_preprocessed/train_amodal_v5.parquet \
+  data.val_files=/storage/openpsi/data/amodal_data_preprocessed/val_amodal_v5.parquet \
   data.train_batch_size="${ROLLOUT_BATCH_SIZE}" \
   data.max_prompt_length=4096 \
   data.max_response_length=1024 \
@@ -82,7 +82,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   +custom_reward_function.reward_kwargs.alpha=0.5 \
   +custom_reward_function.reward_kwargs.threshold=0.5 \
   +custom_reward_function.reward_kwargs.reward_type=mix \
-  actor_rollout_ref.model.path=/storage/openpsi/models/internvl3_5_8b_v7_2 \
+  actor_rollout_ref.model.path=/storage/openpsi/models/amodal_model/amodal_8b_v13_1epoch \
   actor_rollout_ref.model.trust_remote_code=True \
   actor_rollout_ref.actor.optim.lr=3e-6 \
   actor_rollout_ref.actor.optim.warmup_style=cosine \
@@ -133,7 +133,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   trainer.test_freq=5 \
   trainer.val_before_train=True \
   trainer.rollout_data_dir="${OUTPUT_PATH}/rollouts" \
-  trainer.total_epochs=10 2>&1 | tee "${JOBLOG}"
+  trainer.total_epochs=5 2>&1 | tee "${JOBLOG}"
 
 # trainer.resume_mode=resume_path \
 # trainer.resume_from_path=/storage/openpsi/models/internvl3_5_1b_grounding_rl/trial4_sig_mixed/global_step_180 \
