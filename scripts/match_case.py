@@ -7,9 +7,9 @@
 # 用法示例：
 '''
 python scripts/match_case.py \
---a /storage/openpsi/data/grounding_sft_v1/stage2_thinking_with_text_sft_train_1029_withflip490K.jsonl \
+--a /storage/openpsi/data/grounding_cot_v3_train_rl/refcoco_train_v5_gpt_candidate_10.28_withflip_RL.jsonl \
 --b /storage/openpsi/data/grounding_sft_v1_result/InternVL3_5-241B-A28B/refcoco_train_v5_gpt_candidate_10.28_withflip_RL_result/ \
---out /storage/openpsi/data/grounding_sft_v1/stage2_thinking_with_text_sft_train_1029_withflip490K_1.jsonl \
+--out /storage/openpsi/data/grounding_cot_v3_train_rl/refcoco_train_v5_gpt_candidate_10.28_withflip_RL_1.jsonl \
 --sim_th 0.7 \
 --new_key "241b_model_iou"
 '''
