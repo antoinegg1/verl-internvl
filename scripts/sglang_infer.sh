@@ -5,8 +5,8 @@ nohup python -m sglang.launch_server \
   --model-path "$model_path" \
   --host 0.0.0.0 --port 30000 \
   --nnodes 1 --node-rank 0 \
-  --dp-size 1 \
-  --tp-size 8 \
+  --dp-size 2 \
+  --tp-size 4 \
   --dtype auto \
   --mem-fraction-static 0.8 \
   > /var/log/sglang_node0.log 2>&1 &
@@ -32,7 +32,7 @@ if [[ "$model_path" == *"amodal"* ]]; then
 fi
 echo "Result dir: $result_dir"
 # mkdir -p "$result_dir" 
-data_name_list=("refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB" "refcoco+_val" "refcocog_val" "refcocog_test" "refcoco_val")
+# data_name_list=("refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB" "refcoco+_val" "refcocog_val" "refcocog_test" "refcoco_val")
 # "refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB"
 # data_name_list=( "stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part1" "stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part2" "stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part3" "stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part4")
 # "refcoco_testA" 
@@ -51,7 +51,11 @@ for data_name in "${data_name_list[@]}"; do
     --model_path $model_path \
     --data_json $data_json \
     --output_dir $output_dir \
-    --endpoint "http://127.0.0.1:30000" 
+    --endpoint "http://127.0.0.1:30000" \
+    --max_tokens 1024 \
+    --concurrency 128 \
+    --prompt_template amodal \
+    --box_remap keep
 
 done
 pkill -9 "sglang" -f
