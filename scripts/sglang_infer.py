@@ -9,11 +9,7 @@ import numpy as np
 import json
 import hashlib
 
-PROMPT_TEMPLATE = (
-    # "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> " 
-    "Please provide the amodal bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>" # Amodal
-    # "Locate {sent}, output its bbox coordinates using JSON format. " #for Qwen
-)
+
 
 
 
@@ -163,7 +159,7 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
             )
             nums = re.findall(r'[+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?', ch.message.content, flags=re.S)
 
-            remap="inverse"
+            remap= REMAP_MODE
             if m:
                 bbox = [float(m.group(i)) for i in range(1, 5)]
                 scaled_bbox = apply_remap(bbox, w, h, remap)
@@ -264,7 +260,23 @@ async def main_async(args):
     print("start")
     client = AsyncOpenAI(base_url=args.endpoint.rstrip("/") + "/v1", api_key="none")
     sem = asyncio.Semaphore(args.concurrency)
-
+    global PROMPT_TEMPLATE
+    if args.prompt_template.lower() == "grounding":
+        PROMPT_TEMPLATE = (
+            "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> "
+        )
+    elif args.prompt_template.lower() == "amodal":     
+        PROMPT_TEMPLATE = (
+            "Please provide the amodal bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>" # Amodal
+        )
+    else: 
+        raise ValueError(f"Unknown prompt_template: {args.prompt_template}")
+    
+    if args.box_remap not in ("keep", "scale", "inverse"):
+        raise ValueError(f"Unknown box_remap: {args.box_remap}")
+    else:
+        global REMAP_MODE
+        REMAP_MODE = args.box_remap
     # 分支一：不分块（原先逻辑）
     if args.flush_every is None or args.flush_every <= 0:
         tasks = []
@@ -401,8 +413,11 @@ def parse_args():
     args.add_argument("--max_tokens", type=int, default=1024)
     args.add_argument("--concurrency", type=int, default=128, help="并发请求数量上限")
     args.add_argument("--flush_every", type=int, default=0, help="分块大小。0 或负数表示不分块（原始逻辑）")
+    args.add_argument("--prompt_template", type=str, required=True, help="Prompt type=grounding or amodal")
+    args.add_argument("--box_remap", type=str, required=True, help="Box remap mode: keep, scale, inverse")
     return args.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
     asyncio.run(main_async(args))
+
