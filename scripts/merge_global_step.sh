@@ -1,9 +1,13 @@
 #model merger
-DST=/storage/openpsi/models/internvl3_8b_grounding_rl/internvl3_8b_grounding_rl/trial6_8B_v7_2_mix_mixed_global_step_490
+DST=/storage/openpsi/models/internvl3_1b_amodaling_rl/trial1_global_step_700
 REF_1B=" /storage/openpsi/models/InternVL3-1B"
 REF_8B=" /storage/openpsi/models/InternVL3-8B"
-REF=${REF_8B}
-SRC=/storage/openpsi/models/internvl3_5_8b_grounding_rl/trial6_8B_v7_2_mix_mixed/global_step_490/actor
+REF=${REF_1B}
+SRC=/storage/openpsi/models/internvl3_1b_amodaling_rl/trial1/global_step_700/actor
+
+cp ${REF}/*json  ${SRC}/huggingface/
+cp ${REF}/*py    ${SRC}/huggingface/
+
 HF_ENDPOINT=https://hf-mirror.com python scripts/legacy_model_merger.py merge \
   --backend fsdp \
   --local_dir ${SRC} \

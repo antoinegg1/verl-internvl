@@ -10,8 +10,8 @@ import json
 import hashlib
 
 PROMPT_TEMPLATE = (
-    "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> " 
-    # "Please provide the amodal bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>" # Amodal
+    # "Please provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref> " 
+    "Please provide the amodal bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>" # Amodal
     # "Locate {sent}, output its bbox coordinates using JSON format. " #for Qwen
 )
 
@@ -163,7 +163,7 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
             )
             nums = re.findall(r'[+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?', ch.message.content, flags=re.S)
 
-            remap="keep"
+            remap="inverse"
             if m:
                 bbox = [float(m.group(i)) for i in range(1, 5)]
                 scaled_bbox = apply_remap(bbox, w, h, remap)

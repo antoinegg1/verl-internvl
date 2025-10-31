@@ -1,22 +1,22 @@
 model_path=${1:?provide model_path}
 echo "model: $model_path"
 
-# nohup python -m sglang.launch_server \
-#   --model-path "$model_path" \
-#   --host 0.0.0.0 --port 30000 \
-#   --nnodes 1 --node-rank 0 \
-#   --dp-size 8 \
-#   --tp-size 1 \
-#   --dtype auto \
-#   --mem-fraction-static 0.8 \
-#   > /var/log/sglang_node0.log 2>&1 &
+nohup python -m sglang.launch_server \
+  --model-path "$model_path" \
+  --host 0.0.0.0 --port 30000 \
+  --nnodes 1 --node-rank 0 \
+  --dp-size 1 \
+  --tp-size 8 \
+  --dtype auto \
+  --mem-fraction-static 0.8 \
+  > /var/log/sglang_node0.log 2>&1 &
 
-# echo "waiting endpoint..."
+echo "waiting endpoint..."
 
-# while ! curl -s http://127.0.0.1:30000 > /dev/null; do
-#     sleep 2
-# done
-# echo "endpoint ready"
+while ! curl -s http://127.0.0.1:30000 > /dev/null; do
+    sleep 2
+done
+echo "endpoint ready"
 
 export BASE_IMAGE_DIR="/storage/openpsi/data/" 
 
@@ -32,15 +32,16 @@ if [[ "$model_path" == *"amodal"* ]]; then
 fi
 echo "Result dir: $result_dir"
 # mkdir -p "$result_dir" 
-# data_name_list=("refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB" "refcoco+_val" "refcocog_val" "refcocog_test" "refcoco_val")
+data_name_list=("refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB" "refcoco+_val" "refcocog_val" "refcocog_test" "refcoco_val")
 # "refcoco_testA" "refcoco_testB" "refcoco+_testA" "refcoco+_testB"
 # data_name_list=( "stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part1" "stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part2" "stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part3" "stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part4")
 # "refcoco_testA" 
-data_name_list=( "refcoco_train_v4_gpt_10.26_withflip_2_RL" )
+# data_name_list=( "refcoco_train_v4_gpt_10.26_withflip_2_RL" )
 # data_name_list=("refcoco_train_v5_gpt_candidate_10.28_withflip_RL" )
-data_dir=grounding_sft_v1
+# data_dir=grounding_sft_v1
 # data_dir=grounding_cot_v3_train_rl
-
+data_name_list=("amodal_eval_v5_10.22_eval_filtered_with_modal_bbox")
+data_dir=amodal_data/amodal_eval_v5
 for data_name in "${data_name_list[@]}"; do
     echo "Processing dataset: $data_name"
     data_json="/storage/openpsi/data/${data_dir}/${data_name}.jsonl"
