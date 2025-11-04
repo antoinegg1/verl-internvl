@@ -32,6 +32,7 @@ if __name__ == "__main__":
     IOU_1B_MIN = 0.0
     IOU_8B_MIN = 0.1
     IOU_14B_MIN = 0.5
+        
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_dir", default=None, help="Directory containing input JSON files")
@@ -76,14 +77,14 @@ if __name__ == "__main__":
     # Define a simple per-row filter based on model IoUs
     def _keep_by_iou(ex):
         try:
-            iou1 = float(ex["internvl1b_v14_newcot_model_iou"])
-            # iou8 = float(ex["internvl8b_v14_newcot_model_iou"])
+            # iou1 = float(ex["8b_model_iou"])
+            iou8 = float(ex["8b_v7_model_iou"])
             # iou14 = float(ex["14b_model_iou"])
             iou241= float(ex["241b_model_iou"])
         except Exception as e:
             print(f"[Warning] Invalid IoU values: {e}")
             return False
-        return (iou1 < 0.6) and (iou241 > 0.4)
+        return (iou8 < 0.6) and (iou241 > 0.2)
 
     BASE_IMG_PATH = "/storage/openpsi/data/"
 
@@ -176,30 +177,32 @@ if __name__ == "__main__":
     if len(train_files) > 0:
         train_path = train_files[0]
         ds_all= datasets.load_dataset("json", data_files=train_path)["train"]
-        ds = ds_all.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
-
+        # ds = ds_all.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
+        # out_path = os.path.join(output_dir, "train_all200K.parquet")
+        # ds.to_parquet(out_path)
+        # exit(0)
         ds_neg = ds_all.filter(_keep_by_iou, num_proc=num_workers)
         print(f"[grounding preprocess] neg (8B<0.5) pool: {ds_neg.num_rows}")
         def _pos_filter(ex):
-            return float(ex["internvl1b_v14_newcot_model_iou"]) >= 0.5
+            return float(ex["8b_v7_model_iou"]) >= 0.5
 
 
         ds_pos = ds_all.filter(_pos_filter, num_proc=num_workers)
         print(f"[grounding preprocess] positives (8B>=0.5) pool: {ds_pos.num_rows}")
 
         bucket_specs = [
-            (0.50, 0.60,  6055),
-            (0.60, 0.70,  4541),
-            (0.70, 0.80,  4541),
-            (0.80, 0.90,  6054),
-            (0.90, 0.98,  9081),
+            (0.50, 0.60,  1879),
+            (0.60, 0.70,  3758),
+            (0.70, 0.80,  3757),
+            (0.80, 0.90,  3757),
+            (0.90, 0.98,  5636),
         ]
 
         pos_parts = []
         rng = np.random.default_rng(42)
         for lo, hi, k in bucket_specs:
             def _in_bucket(ex, lo=lo, hi=hi):
-                v = float(ex["internvl1b_v14_newcot_model_iou"])
+                v = float(ex["8b_v7_model_iou"])
                 return (v >= lo) and (v < hi)
 
             ds_bucket = ds_pos.filter(_in_bucket, num_proc=num_workers)
@@ -223,7 +226,7 @@ if __name__ == "__main__":
 
         ds = ds.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
         print(f"[grounding preprocess] train samples (final): {len(ds)}")
-        ds.to_parquet(os.path.join(output_dir, "train_cot_v3_rl_for1b_60K.parquet"))
+        ds.to_parquet(os.path.join(output_dir, "train_cot_v2_rl_flip_for8b_37K.parquet"))
 
     # # Process test files: sample 10% from each and mix into a single dataset
     # mixed_slices = []

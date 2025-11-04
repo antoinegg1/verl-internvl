@@ -45,9 +45,6 @@ def extract_box_from_text(s: str) -> List[float]:
                 return []
             if not math.isfinite(x):
                 return []  # 出现 inf/nan，直接判无效，交给上游跳过该样本
-            # 若你的坐标规范是 0~1000，这里 clamp；如果是 0~1，就把 1000 改成 1
-            if x < 0.0: x = 0.0
-            if x > 1000.0: x = 1000.0
             vals.append(x)
         
         x1, y1, x2, y2 = vals
@@ -130,6 +127,33 @@ def to_box_tuple(b: Sequence[Union[int, float]]) -> Box:
         return (math.nan, math.nan, math.nan, math.nan)
     return (float(b[0]), float(b[1]), float(b[2]), float(b[3]))
 
+def _to_tokens(text: Any):
+    s = "" if text is None else str(text)
+    return s.split()
+
+def _length_penalty_tokens(tokens, max_tokens: int = 512, step: int = 50, per_step: float = 0.01) -> float:
+    n = len(tokens)
+    if n <= max_tokens:
+        return 0.0
+    over = n - max_tokens
+    chunks = (over + step - 1) // step  # ceil(over/step) 且不足50按50计算
+    return chunks * per_step
+
+def _has_consecutive_repeats(tokens, min_run: int = 7) -> bool:
+    if not tokens:
+        return False
+    run = 1
+    prev = tokens[0]
+    for t in tokens[1:]:
+        if t == prev:
+            run += 1
+            if run >= min_run:
+                return True
+        else:
+            prev = t
+            run = 1
+    return False
+
 def compute_score(
     solution_str: Any,
     ground_truth: Any,
@@ -181,6 +205,19 @@ def compute_score(
         reward = alpha * pass_val + (1.0 - alpha) * iou_val
     elif reward_type == "sigmoid":
         reward = 1.0 / (1.0 + math.exp(-8.0 * (iou_val - iou_threshold)))
+    elif reward_type == "penalty":
+        pass_val = 1.0 if iou_val >= iou_threshold else 0.0
+        base = alpha * pass_val + (1.0 - alpha) * iou_val
+        toks = _to_tokens(solution_str)
+        len_pen = _length_penalty_tokens(
+            toks,
+            max_tokens=512,
+            step=50,
+            per_step=0.01,
+        )
+        rep_pen = 0.3 if _has_consecutive_repeats(toks, min_run=7) else 0.0
+        reward = base - (len_pen + rep_pen)
+        
     elif reward_type == "normalized_exp":
         K = np.log(16.0)  
         DENOM = 1.0 - np.exp(-K) 
