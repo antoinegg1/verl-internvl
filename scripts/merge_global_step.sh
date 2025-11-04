@@ -1,7 +1,7 @@
-
+# 需要跑的 steps（只改这里）
 steps=(820 900 1000)
 
-
+# 固定不变的参数
 REF_1B="/storage/openpsi/models/InternVL3-1B"
 REF_8B="/storage/openpsi/models/InternVL3-8B"
 REF=${REF_1B}
