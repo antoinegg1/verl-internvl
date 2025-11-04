@@ -7,7 +7,7 @@ export RAY_MASTER_PORT=26379
 export RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
 # 任务名与输出目录
 export PROJECT_NAME="internvl3_8b_grounding_rl"
-TASK_NAME="trial1_cot_v3"
+TASK_NAME="trial3_8B_v5_directbbox"
 unset ROCR_VISIBLE_DEVICES || true
 unset HIP_VISIBLE_DEVICES || true
 export OUTPUT_PATH="${OUTPUT_PATH:-/storage/openpsi/models/${PROJECT_NAME}/${TASK_NAME}}"
@@ -15,7 +15,7 @@ export JOBLOG="${JOBLOG:-${OUTPUT_PATH}/traininnvitopg.log}"
 RAY_WORKING_DIR="${RAY_WORKING_DIR:-${OUTPUT_PATH}/ray_working_dir}"
 mkdir -p "${OUTPUT_PATH}" "${RAY_WORKING_DIR}"
 
-export RAY_ADDRESS=33.180.160.150:26379
+export RAY_ADDRESS=33.180.171.186:26379
 
 # 可选查看集群状态（不影响已运行的 head）
 ray status || true
@@ -65,11 +65,11 @@ ray job submit --address="${RAY_ADDRESS}" \
   --runtime-env-json="$RUNTIME_ENV_JSON" \
   -- python3 -m verl.trainer.main_ppo \
   algorithm.adv_estimator=grpo \
-  data.train_files=/storage/openpsi/data/grounding_cot_v3_train_rl_preprocessed/train_cot_v3_rl_for8b_50K.parquet  \
+  data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_cot_v2_rl_flip_for8b_37K.parquet\
   data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_mixed.parquet \
   data.train_batch_size="${ROLLOUT_BATCH_SIZE}" \
   data.max_prompt_length=4096 \
-  data.max_response_length=2048 \
+  data.max_response_length=512 \
   data.filter_overlong_prompts=True \
   data.filter_overlong_prompts_workers=8 \
   data.truncation='error' \
@@ -82,9 +82,9 @@ ray job submit --address="${RAY_ADDRESS}" \
   +custom_reward_function.reward_kwargs.alpha=0.5 \
   +custom_reward_function.reward_kwargs.threshold=0.5 \
   +custom_reward_function.reward_kwargs.reward_type=mix \
-  actor_rollout_ref.model.path=/storage/openpsi/models/internvl8b_v14_newcot \
+  actor_rollout_ref.model.path=/storage/openpsi/models/internvl3_5_8b_v5 \
   actor_rollout_ref.model.trust_remote_code=True \
-  actor_rollout_ref.actor.optim.lr=1e-5 \
+  actor_rollout_ref.actor.optim.lr=3e-6 \
   actor_rollout_ref.actor.optim.warmup_style=cosine \
   actor_rollout_ref.actor.optim.lr_warmup_steps=30 \
   actor_rollout_ref.model.use_remove_padding=True \
@@ -109,6 +109,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.temperature=0.7 \
   actor_rollout_ref.rollout.top_p=0.9 \
+  actor_rollout_ref.rollout.dtype=float16 \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
   actor_rollout_ref.rollout.enable_chunked_prefill=True \
   actor_rollout_ref.rollout.enforce_eager=True \
@@ -129,11 +130,11 @@ ray job submit --address="${RAY_ADDRESS}" \
   trainer.experiment_name="${TASK_NAME}" \
   trainer.n_gpus_per_node="${NPROC_PER_NODE}" \
   trainer.nnodes="${WORLD_SIZE}" \
-  trainer.save_freq=20 \
-  trainer.test_freq=10 \
+  trainer.save_freq=10 \
+  trainer.test_freq=5 \
   trainer.val_before_train=True \
   trainer.rollout_data_dir="${OUTPUT_PATH}/rollouts" \
   trainer.total_epochs=5 2>&1 | tee "${JOBLOG}"
 
-# trainer.resume_mode=resume_path \
-# trainer.resume_from_path=/storage/openpsi/models/internvl3_5_1b_grounding_rl/trial4_sig_mixed/global_step_180 \
+  # trainer.resume_mode=resume_path \
+  # trainer.resume_from_path=/storage/openpsi/models/internvl3_8b_grounding_rl/trial1_cot_v3/global_step_100 \

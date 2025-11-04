@@ -8,7 +8,7 @@ from PIL import Image
 import numpy as np
 import json
 import hashlib
-
+import time
 
 
 
@@ -120,7 +120,7 @@ def compute_iou(boxA, boxB):
     return inter_area / (areaA + areaB - inter_area)
 
 async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tokens: int) -> Dict[str, Any]:
-    rec["image"] = rec["image"].replace("data", "").lstrip("/")
+    rec["image"] = rec["image"].replace("data", "").replace("lustre/fsw/portfolios/nvr/users/yunhaof/sets","").replace("lustre/fsw/portfolios/nvr/projects/nvr_elm_llm/users/gzhan","").lstrip("/")
     base_image_dir = "/storage/openpsi/data"
     path = os.path.join(base_image_dir, rec["image"])
     with Image.open(path) as img:
@@ -137,6 +137,7 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
     ]
 
     for attempt in range(3):
+        t0 = time.perf_counter() 
         try:
             resp = await client.chat.completions.create(
                 model=model,
@@ -144,10 +145,15 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
                 temperature=0.0,
                 max_tokens=max_tokens,
             )
+            t1 = time.perf_counter()
+            latency_s = t1 - t0
             ch = resp.choices[0]
+            token_count = resp.usage.completion_tokens
+
 
             print("generation", ch.message.content)
             print("gt_bbox", rec["bbox"], "width", w, "height", h)
+            print(f"latency: {latency_s:.3f}s, tokens: {token_count}")
 
             m = re.search(
                 r'"bbox_2d"\s*:\s*\[\s*([+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?)\s*,\s*([+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?)\s*,\s*([+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?)\s*,\s*([+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?)\s*\]',
@@ -180,6 +186,8 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
                 "generation": ch.message.content,
                 "scaled_bbox": scaled_bbox,
                 "iou": iou,
+                "latency_s": latency_s,         # 单条请求耗时
+                "response_tokens": token_count  # 模型返回 token 数
             }
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
@@ -198,6 +206,7 @@ async def bounded_call(idx: int, rec: Dict[str, Any], sem: asyncio.Semaphore,
 async def _run_range(ds, start, end, client, model, max_tokens, sem, desc="async infer"):
     ds_chunk = ds.select(range(start, end))
     tasks = []
+
     for j in range(len(ds_chunk)):
         rec = {
             "image": ds_chunk[j]["image"],
@@ -269,6 +278,10 @@ async def main_async(args):
         PROMPT_TEMPLATE = (
             "Please provide the amodal bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>" # Amodal
         )
+    elif args.prompt_template.lower() == "plm_grounding":     
+        PROMPT_TEMPLATE = (
+            "Provide a bounding box of the region this sentence describes: '{sent}'.\nUse the format [x1, y1, x2, y2]."
+        )
     else: 
         raise ValueError(f"Unknown prompt_template: {args.prompt_template}")
     
@@ -293,12 +306,19 @@ async def main_async(args):
         generations = [None] * len(ds)
         scaled_bbox = [None] * len(ds)
         iou = [None] * len(ds)
-
+        all_lat = []
+        all_tokens = []
         pbar = tqdm(total=len(tasks), desc="async infer (no chunk)")
         for coro in asyncio.as_completed(tasks):
             idx, out = await coro
             generations[idx] = out.get("generation")
             scaled_bbox[idx] = out.get("scaled_bbox")
+            latency = out.get("latency_s", None)
+            tokens = out.get("response_tokens", None)
+            if latency is not None:
+                all_lat.append(latency)
+            if tokens is not None:
+                all_tokens.append(tokens)
             iou[idx] = out.get("iou")
             pbar.update(1)
         pbar.close()
@@ -306,6 +326,14 @@ async def main_async(args):
         stats = summarize_ious(iou)
         mean_iou = stats["mean_iou"]
         pass_rate = stats["pass_rate_05"]
+        total_tokens = int(sum(all_tokens))
+        total_time =int(sum(all_lat))
+        case_num = int(len(ds))
+        print("case_num", case_num)
+        print("total_time", total_time)
+        print("total_tokens", total_tokens)
+        print("mean_time", total_time/case_num)
+        print("mean_tokens", total_tokens/case_num)
         print("mean_iou", mean_iou)
         print("pass_rate@0.5", pass_rate)
 
@@ -325,10 +353,14 @@ async def main_async(args):
             f.write(f"# IOU scores (N={len(iou)})\n")
             f.write(f"mean_iou: {mean_iou:.6f}\n")
             f.write(f"pass_rate@0.5: {pass_rate:.6f}\n")
-
+        with open(os.path.join(args.output_dir, "latency.txt"), "w", encoding="utf-8") as f:
+            f.write(f"total_time_sec: {total_time:.3f}\n")
+            f.write(f"total_tokens: {total_tokens}\n")
+            f.write(f"case_number: {case_num}\n")
         ds_out = (ds.add_column("generated_result", generations)
                     .add_column("scaled_bbox", scaled_bbox)
                     .add_column("iou", iou))
+    
         ds_out.save_to_disk(args.output_dir)
         print(f"✅ 完成（不分块）。输出保存到: {args.output_dir}")
         return
