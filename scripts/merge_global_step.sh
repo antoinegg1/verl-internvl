@@ -1,16 +1,18 @@
 # 需要跑的 steps（只改这里）
-steps=(820 900 1000)
+steps=(310 520)
 
 # 固定不变的参数
 REF_1B="/storage/openpsi/models/InternVL3-1B"
 REF_8B="/storage/openpsi/models/InternVL3-8B"
-REF=${REF_1B}
+REF_2B="/storage/openpsi/models/grounding_model/internvl3_2b_v5"
+REF_QWEN_2B="/storage/openpsi/models/qwen3-vl-2b-direct_box-sft"
+REF_QWEN_4B="/storage/openpsi/models/qwen3-vl-4b-direct_box-sft"
+REF_QWEN_8B="/storage/openpsi/models/qwen3-vl-8b-direct_box"
+REF=${REF_2B}
 
 for step in "${steps[@]}"; do
-  DST="/storage/openpsi/models/internvl3_1b_grounding_rl/trial7_caption_global_step_${step}"
-  SRC="/storage/openpsi/models/internvl3_1b_grounding_rl/trial7_caption/global_step_${step}/actor"
-
-  mkdir -p "${SRC}/huggingface" "${DST}"
+  DST="/storage/openpsi/models/internvl3_2b_grounding_rl/trial1_directbbox_global_step_${step}"
+  SRC="/storage/openpsi/models/internvl3_2b_grounding_rl/trial1_directbbox/global_step_${step}/actor"
 
   cp ${REF}/*json  ${SRC}/huggingface/
   cp ${REF}/*py    ${SRC}/huggingface/
@@ -26,6 +28,7 @@ for step in "${steps[@]}"; do
 
   cp ${REF}/*json  ${DST}/
   cp ${REF}/*py    ${DST}/
+  cp ${REF}/*jinja  ${DST}/
 
   echo "done: global_step_${step}"
 done

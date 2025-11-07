@@ -42,13 +42,13 @@ def main():
 
     # Hugging Face 用户名和 Token
     username = "Antoinegg1"         # 请替换为您的用户名
-    token = "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"          # 请替换为您的 Hugging Face 访问令牌
+    token = "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"          # 请替换为您的 Hugging Face 访问令牌
 
     # 指定目标仓库名称和目录
     name_groups = [
         {
-            "directory_path": "/storage/openpsi/data/grounding_sft_v1_result",
-            "repo_name": "grounding_sft_v1_result",
+            "directory_path": "/storage/openpsi/models/qwen3_2b_grounding_rl/trial1_direct_box_global_step_370",
+            "repo_name": "qwen3_2b_direct_box_global_step_370",
             "ignore_dirs": []
         }
     ]

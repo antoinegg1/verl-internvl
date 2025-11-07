@@ -61,7 +61,7 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
         kwargs["eos_token_id"] = 107
     trust_remote_code=kwargs.get("trust_remote_code", False)
     tokenizer = AutoTokenizer.from_pretrained(name_or_path, **kwargs)
-    config = AutoConfig.from_pretrained(name_or_path, trust_remote_code=trust_remote_code)
+    config = AutoConfig.from_pretrained(name_or_path, trust_remote_code=True)
     if re.match("internvl", config.model_type):
         tokenizer.context_image_token = "<IMG_CONTEXT>"
         tokenizer.end_image_token="</img>"
@@ -92,7 +92,7 @@ def hf_processor(name_or_path, **kwargs):
     """
     from transformers import AutoProcessor
     trust_remote_code=kwargs.get("trust_remote_code", False)
-    config = AutoConfig.from_pretrained(name_or_path, trust_remote_code=trust_remote_code)
+    config = AutoConfig.from_pretrained(name_or_path, trust_remote_code=True)
     try:
         if re.match("internvl", config.model_type, re.IGNORECASE):
             print("InterVLProcessor initilizing")

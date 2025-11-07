@@ -7,243 +7,284 @@ Train JSON example:
 Test JSON example:
 {"image": "...", "sent": "...", "bbox": [x1,y1,x2,y2], "height": H, "width": W}
 """
-import numpy as np
+
 import argparse
 import os
 import re
 
+import numpy as np
 import datasets
 
 from verl.utils.hdfs_io import copy, makedirs  # noqa: F401
 
+BASE_IMG_PATH = "/storage/openpsi/data/"
 
-# {"id": -1, "image": "coco/train2014/COCO_train2014_000000573297.jpg", "height": 640, "width": 384, "conversations": [{"from": "human", "value": "<image>\nPlease provide the bounding box coordinate of the region this sentence describes: <ref>man wearing a red costume</ref>"}, {"from": "gpt", "value": "<think>To correctly identify the bounding box for \"man wearing a red costume,\" focus on the distinct red clothing and any unique features such as accessories or armor that align with the description. Ensure the selected area encompasses the entire figure described, differentiating from other similar objects by emphasizing the red color and contextually relevant details.</think><answer><ref>man wearing a red costume</ref><box>[81, 104, 998, 999]</box></answer>"}], "1b_model_iou": 0.9620241352816716, "8b_model_iou": 0.9890789935127147, "14b_model_iou": 0.9845281630184352}
+
+# --------- helpers ---------
+def extract_sent(row):
+    text = " ".join(x.get("value", "") for x in row["conversations"])
+    m = re.findall(r'<ref>\s*["“]?(.+?)["”]?\s*</ref>', text, flags=re.S)
+    if not m:
+        return ""
+    return m[-1].strip()
+
+
 def extract_answer(answer_raw: str) -> list[int]:
     pattern = r"<box>\s*\[(.*?)\]\s*</box>"
     match = re.search(pattern, answer_raw)
-    if match:
-        return list(map(int, match.group(1).strip().split(",")))
-    else:
+    if not match:
         raise ValueError(f"Answer format is incorrect: {answer_raw}")
+    return list(map(int, match.group(1).strip().split(",")))
 
 
+def bbox_px_to_norm_1000(bbox, w: int, h: int):
+    x1, y1, x2, y2 = bbox
+    w_f = float(w)
+    h_f = float(h)
+    nx1 = float(x1) * 1000.0 / w_f
+    ny1 = float(y1) * 1000.0 / h_f
+    nx2 = float(x2) * 1000.0 / w_f
+    ny2 = float(y2) * 1000.0 / h_f
+    return [nx1, ny1, nx2, ny2]
+
+
+def round_to_16(x):
+    if x is None:
+        return None
+    x = int(x)
+    return (x + 15) // 16 * 16
+def is_multiple_of_16(x):
+    if x is None:
+        return False
+    x = int(x)
+    return x % 16 == 0
+
+# --------- map fns ---------
+def make_map_fn(split: str, fmt: str):
+    """
+    fmt: "default" or "qwen"
+    """
+
+    def process_fn(example, idx):
+        conversation = example.pop("conversations")
+        orig_h = example.get("height")
+        orig_w = example.get("width")
+        img_path = os.path.join(BASE_IMG_PATH, example["image"])
+
+        if not os.path.exists(img_path):
+            print(f"[Warning] Image not found: {img_path}")
+            return None
+
+        # 构造问题/答案
+        if fmt == "qwen" and "sent" in example:
+            prompt = "<image>\nLocate {sent}, output its bbox coordinates using JSON format"
+            question_raw = prompt.format(sent=example["sent"])
+        else:
+            question_raw = conversation[0]["value"]
+
+        answer_raw = conversation[1]["value"]
+        solution = extract_answer(answer_raw)
+
+        data = {
+            "data_source": "grounding",
+            "prompt": [
+                {
+                    "role": "user",
+                    "content": question_raw,
+                }
+            ],
+            "images": [img_path],
+            "ability": "grounding",
+            "reward_model": {"style": "rule", "ground_truth": solution},
+            "extra_info": {
+                "split": split,
+                "index": idx,
+                "id": example.get("id"),
+                "height": orig_h,
+                "width": orig_w,
+                "question": question_raw,
+            },
+        }
+        return data
+
+    return process_fn
+
+
+def make_map_fn_test(fmt: str):
+    def process_fn(example, idx):
+        # test 这边原始数据里本来就有 sent/bbox/height/width
+        base_img_path = "/storage/openpsi/" if fmt == "qwen" else BASE_IMG_PATH
+        img_path = os.path.join(base_img_path, example["image"])
+        sent = example["sent"]
+        bbox = example["bbox"]
+        H = example["height"]
+        W = example["width"]
+
+        if not os.path.exists(img_path):
+            print(f"[Warning] Image not found: {img_path}")
+
+        if fmt == "qwen":
+            content = f"<image>\nLocate {sent}, output its bbox coordinates using JSON format"
+        else:
+            content = f"<image>\nPlease provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>"
+
+        data = {
+            "data_source": "grounding",
+            "prompt": [{"role": "user", "content": content}],
+            "images": [img_path],
+            "ability": "grounding",
+            "reward_model": {"style": "rule", "ground_truth": bbox_px_to_norm_1000(bbox, W, H)},
+            "extra_info": {
+                "split": "test",
+                "index": idx,
+                "height": H,
+                "width": W,
+                "question": sent,
+            },
+        }
+
+        return data
+
+    return process_fn
+
+
+# --------- main ---------
 if __name__ == "__main__":
-    # Simple hard-coded IoU thresholds for filtering (kept for future use)
-    IOU_1B_MIN = 0.0
-    IOU_8B_MIN = 0.1
-    IOU_14B_MIN = 0.5
-        
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_dir", default=None, help="Directory containing input JSON files")
-    parser.add_argument("--output_dir", default=None, help="Directory to write output parquet files")
+    parser.add_argument("--input_dir", required=True, help="Directory containing input JSON files")
+    parser.add_argument("--output_dir", required=True, help="Directory to write output parquet files")
     parser.add_argument(
         "--train_files",
         nargs="+",
         default=["train.json"],
-        help="One or more train JSON files or glob patterns (relative to --input_dir if not absolute)",
+        help="One or more train JSON files (relative to --input_dir if not absolute)",
     )
     parser.add_argument(
         "--test_files",
         nargs="+",
         default=["test.json"],
-        help="One or more test JSON files or glob patterns (relative to --input_dir if not absolute)",
+        help="One or more test JSON files (relative to --input_dir if not absolute)",
     )
     parser.add_argument(
         "--num_workers",
         type=int,
         default=max(1, (os.cpu_count() or 1) // 2),
-        help="Number of worker processes for map/filter (datasets num_proc)",
+        help="datasets num_proc",
     )
-
-    # parser.add_argument("--hdfs_dir", default=None)
-
+    parser.add_argument(
+        "--format",
+        choices=["default", "qwen"],
+        default="default",
+        help="output prompt format",
+    )
+    parser.add_argument(
+        "--process-test",
+        action="store_true",
+        help="whether to process test json and write parquet",
+    )
     args = parser.parse_args()
 
-    # Resolve IO directories
     input_dir = os.path.expanduser(args.input_dir)
     output_dir = os.path.expanduser(args.output_dir)
     os.makedirs(output_dir, exist_ok=True)
     num_workers = int(args.num_workers)
-    print(f"[grounding preprocess] using num_workers={num_workers}")
+    fmt = args.format
 
-    # Resolve files by simple path join (no globbing)
     def expand_files(files):
         return [os.path.join(input_dir, f) for f in files]
 
     train_files = expand_files(args.train_files)
     test_files = expand_files(args.test_files)
 
-    # Define a simple per-row filter based on model IoUs
-    def _keep_by_iou(ex):
-        try:
-            # iou1 = float(ex["8b_model_iou"])
-            iou8 = float(ex["8b_v7_model_iou"])
-            # iou14 = float(ex["14b_model_iou"])
-            iou241= float(ex["241b_model_iou"])
-        except Exception as e:
-            print(f"[Warning] Invalid IoU values: {e}")
-            return False
-        return (iou8 < 0.6) and (iou241 > 0.2)
-
-    BASE_IMG_PATH = "/storage/openpsi/data/"
-
-    # Convert pixel-space bbox to a 0..1000 grid (float) using width/height
-    def _bbox_px_to_norm_1000(bbox, w: int, h: int):
-        x1, y1, x2, y2 = bbox
-        w_f = float(w)
-        h_f = float(h)
-        nx1 = float(x1) * 1000.0 / w_f
-        ny1 = float(y1) * 1000.0 / h_f
-        nx2 = float(x2) * 1000.0 / w_f
-        ny2 = float(y2) * 1000.0 / h_f
-        return [nx1, ny1, nx2, ny2]
-
-    # add a row to each data item that represents a unique id
-    def make_map_fn(split):
-        def process_fn(example, idx):
-            conversation = example.pop("conversations")
-            question_raw = conversation[0]["value"]
-            answer_raw = conversation[1]["value"]
-            img_path = os.path.join(BASE_IMG_PATH, example["image"])
-
-            if not os.path.exists(img_path):
-                print(f"[Warning] Image not found: {img_path}")
-                return None
-
-            images = [img_path]
-
-            # For grounding, use the raw question directly
-            question = question_raw
-            solution = extract_answer(answer_raw)
-            data = {
-                "data_source": "grounding",
-                "prompt": [
-                    {
-                        "role": "user",
-                        "content": question,
-                    }
-                ],
-                "images": images,
-                "ability": "grounding",
-                "reward_model": {"style": "rule", "ground_truth": solution},
-                "extra_info": {
-                    "split": split,
-                    "index": idx,
-                    "id": example.get("id"),
-                    "height": example.get("height"),
-                    "width": example.get("width"),
-                    "question": question,
-                },
-            }
-            return data
-
-        return process_fn
-
-    # Map function for test-style records: {image, sent, bbox, height, width}
-    def make_map_fn_test():
-        def process_fn(example, idx):
-            img_path = os.path.join(BASE_IMG_PATH, example["image"])
-            sent = example["sent"]
-            bbox = example["bbox"]
-            H = example["height"]
-            W = example["width"]
-            if not os.path.exists(img_path):
-                print(f"[Warning] Image not found: {img_path}")
-
-            content = (
-                f"<image>\nPlease provide the bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>"
-            )
-            data = {
-                "data_source": "grounding",
-                "prompt": [{"role": "user", "content": content}],
-                "images": [img_path],
-                "ability": "grounding",
-                # store normalized GT to [0,1000] (float) to match training format
-                "reward_model": {"style": "rule", "ground_truth": _bbox_px_to_norm_1000(bbox, W, H)},
-                "extra_info": {
-                    "split": "test",
-                    "index": idx,
-                    "height": H,
-                    "width": W,
-                    "question": sent,
-                },
-            }
-            return data
-
-        return process_fn
-
-    # Process train: only one file is expected; write to train.parquet
+    # 训练数据
     if len(train_files) > 0:
         train_path = train_files[0]
-        ds_all= datasets.load_dataset("json", data_files=train_path)["train"]
-        # ds = ds_all.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
-        # out_path = os.path.join(output_dir, "train_all200K.parquet")
-        # ds.to_parquet(out_path)
-        # exit(0)
-        ds_neg = ds_all.filter(_keep_by_iou, num_proc=num_workers)
-        print(f"[grounding preprocess] neg (8B<0.5) pool: {ds_neg.num_rows}")
-        def _pos_filter(ex):
-            return float(ex["8b_v7_model_iou"]) >= 0.5
+        ds_all = datasets.load_dataset("json", data_files=train_path)["train"]
+        if fmt == "qwen":
+            def _keep_16(ex):
+                return is_multiple_of_16(ex.get("height")) and is_multiple_of_16(ex.get("width"))
+            ds_all = ds_all.filter(_keep_16, num_proc=num_workers)
+            print(f"[grounding preprocess] qwen: keep 16x samples only -> {ds_all.num_rows}")
 
+        # 按你原来逻辑做 iou 过滤和分桶
+        def keep_neg(ex):
+            if "qwen3-vl-8b-cot_model_iou" not in ex or "241b_model_iou" not in ex:
+                return False
+            iou8 = float(ex["qwen3-vl-8b-cot_model_iou"])
+            iou241 = float(ex["241b_model_iou"])
+            return (iou8 < 0.5) and (iou241 > 0.5)
 
-        ds_pos = ds_all.filter(_pos_filter, num_proc=num_workers)
-        print(f"[grounding preprocess] positives (8B>=0.5) pool: {ds_pos.num_rows}")
+        ds_neg = ds_all.filter(keep_neg, num_proc=num_workers)
+        print(f"[grounding preprocess] neg pool: {ds_neg.num_rows}")
+
+        def keep_pos(ex):
+            if "qwen3-vl-8b-cot_model_iou" not in ex:
+                return False
+            return float(ex["qwen3-vl-8b-cot_model_iou"]) >= 0.5
+
+        ds_pos = ds_all.filter(keep_pos, num_proc=num_workers)
+        print(f"[grounding preprocess] pos pool: {ds_pos.num_rows}")
 
         bucket_specs = [
-            (0.50, 0.60,  1879),
-            (0.60, 0.70,  3758),
-            (0.70, 0.80,  3757),
-            (0.80, 0.90,  3757),
-            (0.90, 0.98,  5636),
+            (0.50, 0.60, 3991),
+            (0.60, 0.70, 7981),
+            (0.70, 0.80, 7981),
+            (0.80, 0.90, 7980),
+            (0.90, 0.98, 11970),
         ]
 
         pos_parts = []
         rng = np.random.default_rng(42)
         for lo, hi, k in bucket_specs:
-            def _in_bucket(ex, lo=lo, hi=hi):
-                v = float(ex["8b_v7_model_iou"])
+            def in_bucket(ex, lo=lo, hi=hi):
+                v = float(ex["qwen3-vl-8b-cot_model_iou"])
                 return (v >= lo) and (v < hi)
 
-            ds_bucket = ds_pos.filter(_in_bucket, num_proc=num_workers)
+            ds_bucket = ds_pos.filter(in_bucket, num_proc=num_workers)
             n_bucket = ds_bucket.num_rows
             take = min(k, n_bucket)
             if take == 0:
                 print(f"[pos bucket {lo:.1f}-{hi:.1f}) available=0, take=0")
                 continue
-
             idx = rng.choice(n_bucket, size=take, replace=False)
             pos_parts.append(ds_bucket.select(sorted(idx)))
             print(f"[pos bucket {lo:.1f}-{hi:.1f}) available={n_bucket}, take={take}")
 
         if len(pos_parts) == 0:
             raise RuntimeError("No positive samples selected; check input stats.")
+
         ds_pos_sampled = datasets.concatenate_datasets(pos_parts)
-        print(f"[grounding preprocess] positives (sampled): {ds_pos_sampled.num_rows}")
+        ds_train = datasets.concatenate_datasets([ds_pos_sampled, ds_neg]).shuffle(seed=42)
+        print(f"[grounding preprocess] merged train size: {ds_train.num_rows}")
 
-        ds = datasets.concatenate_datasets([ds_pos_sampled, ds_neg]).shuffle(seed=42)
-        print(f"[grounding preprocess] merged train size: {ds.num_rows}")
+        ds_train = ds_train.map(
+            function=make_map_fn("train", fmt),
+            with_indices=True,
+            num_proc=num_workers,
+        )
+        print(f"[grounding preprocess] train samples (final): {len(ds_train)}")
+        out_train = os.path.join(
+            output_dir,
+            "train_grounding_{}.parquet".format(fmt),
+        )
+        ds_train.to_parquet(out_train)
+        print(f"[grounding preprocess] wrote {out_train}")
 
-        ds = ds.map(function=make_map_fn("train"), with_indices=True, num_proc=num_workers)
-        print(f"[grounding preprocess] train samples (final): {len(ds)}")
-        ds.to_parquet(os.path.join(output_dir, "train_cot_v2_rl_flip_for8b_37K.parquet"))
-
-    # # Process test files: sample 10% from each and mix into a single dataset
-    # mixed_slices = []
-    # for file_path in test_files:
-    #     ds = datasets.load_dataset("json", data_files=file_path)["train"]
-    #     # ds = ds.map(function=make_map_fn_test(), with_indices=True, num_proc=num_workers)
-    #     ds = ds.map(function=make_map_fn("test"), with_indices=True, num_proc=num_workers)
-    #     n = len(ds)
-    #     k = max(1, int(n * 1.0)) if n > 0 else 0
-    #     if k > 0:
-    #         ds_slice = ds.shuffle(seed=42).select(range(k))
-    #         mixed_slices.append(ds_slice)
-
-    # if len(mixed_slices) > 0:
-    #     mixed = datasets.concatenate_datasets(mixed_slices).shuffle(seed=42)
-    #     print(f"[grounding preprocess] test samples (mixed 10% per file): {len(mixed)}")
-    #     mixed.to_parquet(os.path.join(output_dir, "test_amodal.parquet"))
-    # else:
-    #     print("[grounding preprocess] no test samples produced (no input or all empty)")
+    # 测试数据（可选）
+    if args.process_test and len(test_files) > 0:
+        mixed_slices = []
+        for file_path in test_files:
+            ds_t = datasets.load_dataset("json", data_files=file_path)["train"]
+            ds_t = ds_t.map(function=make_map_fn_test(fmt), with_indices=True, num_proc=num_workers)
+            n = len(ds_t)
+            k = max(1, int(n * 0.1)) if n > 0 else 0
+            if k > 0:
+                mixed_slices.append(ds_t.shuffle(seed=42).select(range(k)))
+        if len(mixed_slices) > 0:
+            mixed = datasets.concatenate_datasets(mixed_slices).shuffle(seed=42)
+            out_test = os.path.join(output_dir, "test_grounding_{}.parquet".format(fmt))
+            mixed.to_parquet(out_test)
+            print(f"[grounding preprocess] test samples: {len(mixed)}, wrote {out_test}")
+        else:
+            print("[grounding preprocess] no test samples produced")
 

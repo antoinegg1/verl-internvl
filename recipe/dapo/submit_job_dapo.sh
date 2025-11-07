@@ -7,7 +7,7 @@ export RAY_MASTER_PORT=26379
 export RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
 # 任务名与输出目录
 export PROJECT_NAME="internvl3_8b_grounding_rl"
-TASK_NAME="trial5_8B_grpo_moredata"
+TASK_NAME="trial4_8B_dapo_moredata"
 unset ROCR_VISIBLE_DEVICES || true
 unset HIP_VISIBLE_DEVICES || true
 export OUTPUT_PATH="${OUTPUT_PATH:-/storage/openpsi/models/${PROJECT_NAME}/${TASK_NAME}}"
@@ -15,7 +15,7 @@ export JOBLOG="${JOBLOG:-${OUTPUT_PATH}/traininnvitopg.log}"
 RAY_WORKING_DIR="${RAY_WORKING_DIR:-${OUTPUT_PATH}/ray_working_dir}"
 mkdir -p "${OUTPUT_PATH}" "${RAY_WORKING_DIR}"
 
-export RAY_ADDRESS=33.180.160.215:26379
+export RAY_ADDRESS=33.180.160.156:26379
 
 # 可选查看集群状态（不影响已运行的 head）
 ray status || true
@@ -45,13 +45,15 @@ export WORLD_SIZE="${WORLD_SIZE:-2}"
 
 export NPROC_PER_NODE="${NPROC_PER_NODE:-${NUM_GPUS_PER_NODE}}"
 export use_dynamic_bsz="${use_dynamic_bsz:-True}"
-REPO=/storage/openpsi/users/lichangye.lcy/verl
+clip_ratio_low=0.2
+clip_ratio_high=0.28
+enable_filter_groups=True
+filter_groups_metric=seq_reward
+max_num_gen_batches=10
 RUNTIME_ENV_JSON=$(jq -nc \
   --arg hf "$HF_ENDPOINT" \
   --arg wb "$WANDB_BASE_URL" \
   --arg key "$WANDB_API_KEY" \
-  --arg wd "$REPO" \
-  --arg py "$REPO:${PYTHONPATH:-}" \
   '{env_vars: {
       HF_ENDPOINT: $hf,
       WANDB_BASE_URL: $wb,
@@ -59,19 +61,19 @@ RUNTIME_ENV_JSON=$(jq -nc \
       ROCR_VISIBLE_DEVICES: "",
       HIP_VISIBLE_DEVICES: "",
       VLLM_ALLREDUCE_USE_SYMM_MEM: "0",
-      PYTHONPATH:$py,
   }}')
 
 
 # ===== 提交 Ray Job =====
 ray job submit --address="${RAY_ADDRESS}" \
   --runtime-env-json="$RUNTIME_ENV_JSON" \
-  -- python3 -m verl.trainer.main_ppo \
+  -- python3 -m recipe.dapo.main_dapo \
   algorithm.adv_estimator=grpo \
   data.train_files=[/storage/openpsi/data/grounding_sft_v1_preprocessed/train_cot_v2_rl_flip_for8b_37K.parquet,/storage/openpsi/data/grounding_sft_v1_preprocessed/object365_train10K.parquet] \
   data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_mixed.parquet \
   data.train_batch_size="${ROLLOUT_BATCH_SIZE}" \
   data.max_prompt_length=4096 \
+  data.gen_batch_size=768 \
   data.max_response_length=1024 \
   data.filter_overlong_prompts=True \
   data.filter_overlong_prompts_workers=8 \
@@ -91,6 +93,9 @@ ray job submit --address="${RAY_ADDRESS}" \
   actor_rollout_ref.actor.optim.lr=3e-6 \
   actor_rollout_ref.actor.optim.warmup_style=cosine \
   actor_rollout_ref.actor.optim.lr_warmup_steps=30 \
+  actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \
+  actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
+  actor_rollout_ref.actor.clip_ratio_c=10.0 \
   actor_rollout_ref.model.use_remove_padding=True \
   actor_rollout_ref.actor.use_dynamic_bsz="${use_dynamic_bsz}" \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=20480 \
@@ -117,7 +122,7 @@ ray job submit --address="${RAY_ADDRESS}" \
   actor_rollout_ref.rollout.dtype=float16 \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
   actor_rollout_ref.rollout.enable_chunked_prefill=True \
-  actor_rollout_ref.rollout.enforce_eager=False \
+  actor_rollout_ref.rollout.enforce_eager=False  \
   actor_rollout_ref.rollout.free_cache_engine=True \
   actor_rollout_ref.rollout.n="${N_SAMPLES_PER_PROMPT}" \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu="${MICRO_TRAIN_BATCH_SIZE}" \
@@ -128,6 +133,9 @@ ray job submit --address="${RAY_ADDRESS}" \
   actor_rollout_ref.rollout.val_kwargs.do_sample=False \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
+  algorithm.filter_groups.enable=${enable_filter_groups} \
+  algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
+  algorithm.filter_groups.metric=${filter_groups_metric} \
   trainer.critic_warmup=0.05 \
   trainer.default_local_dir="${OUTPUT_PATH}" \
   trainer.logger=['console','wandb'] \

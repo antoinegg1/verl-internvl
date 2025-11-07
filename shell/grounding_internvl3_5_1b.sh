@@ -13,8 +13,14 @@ rm -rf "${RAY_TMPDIR}"
 mkdir -p "${RAY_TMPDIR}"
 
 # 任务名
-export PROJECT_NAME="internvl3_1b_amodaling_rl"
-TASK_NAME="trial2_rlzero"
+export PROJECT_NAME="qwen3_2b_grounding_rl"
+if echo "$PROJECT_NAME" | grep -q "qwen"; then
+    export PYTHONPATH=/storage/openpsi/users/lichangye.lcy/sglang/python
+    echo "PYTHONPATH set for qwen project."
+else
+    echo "PROJECT_NAME does not contain 'qwen'. No PYTHONPATH set."
+fi
+TASK_NAME="trial1_cot"
 echo "TASK_NAME: $TASK_NAME"
 echo "PROJECT_NAME: $PROJECT_NAME"
 unset ROCR_VISIBLE_DEVICES || true
@@ -74,8 +80,8 @@ use_dynamic_bsz=True
 ray job submit --address=${RAY_ADDRESS} \
     -- python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/storage/openpsi/data/amodal_data_preprocessed/train_amodal_v5.parquet \
-    data.val_files=/storage/openpsi/data/amodal_data_preprocessed/val_amodal_v5.parquet \
+    data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_cot_v2_rl_flip_forqwen3_2b_cot_120K.parquet \
+    data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_grounding_qwen.parquet \
     data.train_batch_size=${ROLLOUT_BATCH_SIZE} \
     data.max_prompt_length=4096 \
     data.max_response_length=1024\
@@ -91,7 +97,7 @@ ray job submit --address=${RAY_ADDRESS} \
     +custom_reward_function.reward_kwargs.reward_type=mix \
     +custom_reward_function.reward_kwargs.alpha=0.5 \
     +custom_reward_function.reward_kwargs.threshold=0.5 \
-    actor_rollout_ref.model.path=/storage/openpsi/models/InternVL3-1B  \
+    actor_rollout_ref.model.path=/storage/openpsi/models/qwen3-vl-2b-cot-sft\
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.optim.lr=3e-6 \
     actor_rollout_ref.actor.optim.warmup_style=cosine \
@@ -141,5 +147,10 @@ ray job submit --address=${RAY_ADDRESS} \
     trainer.save_freq=10 \
     trainer.test_freq=5 \
     trainer.val_before_train=True \
+    trainer.resume_mode=resume_path \
+    trainer.resume_from_path=/storage/openpsi/models/qwen3_2b_grounding_rl/trial1_cot/global_step_80 \
     trainer.rollout_data_dir=${OUTPUT_PATH}/rollouts \
     trainer.total_epochs=5 2>&1 | tee ${JOBLOG}
+
+  # trainer.resume_mode=resume_path \
+  # trainer.resume_from_path=/storage/openpsi/models/internvl3_8b_grounding_rl/trial1_cot_v3/global_step_100 \
