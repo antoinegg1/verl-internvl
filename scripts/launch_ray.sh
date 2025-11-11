@@ -1,5 +1,5 @@
 # 0) 基础环境（容器里）
-export HOST_IP="33.180.160.156"
+export HOST_IP="33.180.161.122"
 export RAY_PORT=26379                       
 export NCCL_IB_DISABLE=1
 export NCCL_DEBUG=WARN

@@ -7,18 +7,19 @@ Train JSON example:
 Test JSON example:
 {"image": "...", "sent": "...", "bbox": [x1,y1,x2,y2], "height": H, "width": W}
 """
-
+from PIL import Image
 import argparse
 import os
 import re
-
+import json
+import ast
 import numpy as np
 import datasets
 
 from verl.utils.hdfs_io import copy, makedirs  # noqa: F401
 
 BASE_IMG_PATH = "/storage/openpsi/data/"
-
+QWEN_MAX_AREA = 641*641
 
 # --------- helpers ---------
 def extract_sent(row):
@@ -53,28 +54,35 @@ def round_to_16(x):
         return None
     x = int(x)
     return (x + 15) // 16 * 16
+
+
 def is_multiple_of_16(x):
     if x is None:
         return False
     x = int(x)
     return x % 16 == 0
 
+
+
 # --------- map fns ---------
-def make_map_fn(split: str, fmt: str):
+def make_map_fn(split: str, fmt: str, iou_key: str):
     """
     fmt: "default" or "qwen"
     """
 
     def process_fn(example, idx):
         conversation = example.pop("conversations")
+
         orig_h = example.get("height")
         orig_w = example.get("width")
-        img_path = os.path.join(BASE_IMG_PATH, example["image"])
+        img_rel = example["image"].replace("/lustre/fsw/portfolios/nvr/projects/nvr_elm_llm/users/gzhan/","").replace("/lustre/fsw/portfolios/nvr/users/yunhaof/datasets/","")
+        img_path = os.path.join(BASE_IMG_PATH, img_rel)
 
         if not os.path.exists(img_path):
             print(f"[Warning] Image not found: {img_path}")
             return None
-
+        with Image.open(img_path) as im:
+            orig_w, orig_h = im.size
         # 构造问题/答案
         if fmt == "qwen" and "sent" in example:
             prompt = "<image>\nLocate {sent}, output its bbox coordinates using JSON format"
@@ -113,12 +121,14 @@ def make_map_fn(split: str, fmt: str):
 def make_map_fn_test(fmt: str):
     def process_fn(example, idx):
         # test 这边原始数据里本来就有 sent/bbox/height/width
-        base_img_path = "/storage/openpsi/" if fmt == "qwen" else BASE_IMG_PATH
-        img_path = os.path.join(base_img_path, example["image"])
+        base_img_path = "/storage/openpsi/data" if fmt == "qwen" else BASE_IMG_PATH
+        img_rel = example["image"].replace("/lustre/fsw/portfolios/nvr/projects/nvr_elm_llm/users/gzhan/","").replace("/lustre/fsw/portfolios/nvr/users/yunhaof/datasets/","")
+        img_path = os.path.join(base_img_path, img_rel)
+
         sent = example["sent"]
         bbox = example["bbox"]
-        H = example["height"]
-        W = example["width"]
+        with Image.open(img_path) as im:
+            W, H = im.size
 
         if not os.path.exists(img_path):
             print(f"[Warning] Image not found: {img_path}")
@@ -174,7 +184,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--format",
         choices=["default", "qwen"],
-        default="default",
         help="output prompt format",
     )
     parser.add_argument(
@@ -182,6 +191,17 @@ if __name__ == "__main__":
         action="store_true",
         help="whether to process test json and write parquet",
     )
+    parser.add_argument(
+        "--bucket-specs",
+        type=str,
+        help='JSON list like [[0.5,0.6,3991],[0.6,0.7,7981],...]',
+    )
+    parser.add_argument(
+        "--iou-key",
+        type=str,
+        help="Key for the main model IOU used for filtering and bucketing",
+    )
+
     args = parser.parse_args()
 
     input_dir = os.path.expanduser(args.input_dir)
@@ -189,6 +209,8 @@ if __name__ == "__main__":
     os.makedirs(output_dir, exist_ok=True)
     num_workers = int(args.num_workers)
     fmt = args.format
+    print(fmt)
+    iou_key = args.iou_key
 
     def expand_files(files):
         return [os.path.join(input_dir, f) for f in files]
@@ -196,59 +218,83 @@ if __name__ == "__main__":
     train_files = expand_files(args.train_files)
     test_files = expand_files(args.test_files)
 
+    # 解析 bucket specs
+    bucket_specs_raw = ast.literal_eval(args.bucket_specs)
+
+    bucket_specs = []
+    for item in bucket_specs_raw:
+        lo, hi, k = float(item[0]), float(item[1]), int(item[2])
+        bucket_specs.append((lo, hi, k))
+
     # 训练数据
     if len(train_files) > 0:
         train_path = train_files[0]
         ds_all = datasets.load_dataset("json", data_files=train_path)["train"]
+        ds_all= ds_all.map(
+            function=make_map_fn("train", fmt, iou_key),
+            with_indices=True,
+            num_proc=num_workers,
+        )
+        print(f"[grounding preprocess] train samples (final): {len(ds_all)}")
+        out_train = os.path.join(
+            output_dir,
+            "test_amodal_qwen.parquet",
+        )
+        ds_all.to_parquet(out_train)
+        print(f"[grounding preprocess] wrote {out_train}")
+        exit(0)
         if fmt == "qwen":
-            def _keep_16(ex):
-                return is_multiple_of_16(ex.get("height")) and is_multiple_of_16(ex.get("width"))
-            ds_all = ds_all.filter(_keep_16, num_proc=num_workers)
-            print(f"[grounding preprocess] qwen: keep 16x samples only -> {ds_all.num_rows}")
+            def keep_qwen_size(ex):
+                h = ex.get("height")
+                w = ex.get("width")
+                if h is not None and w is not None:
+                    return int(h) * int(w) <= QWEN_MAX_AREA
+                img_rel = ex["image"]
+                img_path = os.path.join(BASE_IMG_PATH, img_rel)
+                if not os.path.exists(img_path):
+                    return False
+                with Image.open(img_path) as im:
+                    W, H = im.size
+                return int(W) * int(H) <= QWEN_MAX_AREA
 
-        # 按你原来逻辑做 iou 过滤和分桶
+            ds_all = ds_all.filter(keep_qwen_size, num_proc=num_workers)
+            print(f"[grounding preprocess] qwen size-filtered pool: {ds_all.num_rows}")
+
+        # iou 过滤和分桶
         def keep_neg(ex):
-            if "qwen3-vl-8b-cot_model_iou" not in ex or "241b_model_iou" not in ex:
+            if iou_key not in ex or "241b_model_iou" not in ex:
                 return False
-            iou8 = float(ex["qwen3-vl-8b-cot_model_iou"])
+            iou_main = float(ex[iou_key])
             iou241 = float(ex["241b_model_iou"])
-            return (iou8 < 0.5) and (iou241 > 0.5)
+            return (iou_main < 0.5) and (iou241 > 0.4)
 
         ds_neg = ds_all.filter(keep_neg, num_proc=num_workers)
         print(f"[grounding preprocess] neg pool: {ds_neg.num_rows}")
 
         def keep_pos(ex):
-            if "qwen3-vl-8b-cot_model_iou" not in ex:
+            if iou_key not in ex:
                 return False
-            return float(ex["qwen3-vl-8b-cot_model_iou"]) >= 0.5
+            return float(ex[iou_key]) >= 0.5
 
         ds_pos = ds_all.filter(keep_pos, num_proc=num_workers)
         print(f"[grounding preprocess] pos pool: {ds_pos.num_rows}")
-
-        bucket_specs = [
-            (0.50, 0.60, 3991),
-            (0.60, 0.70, 7981),
-            (0.70, 0.80, 7981),
-            (0.80, 0.90, 7980),
-            (0.90, 0.98, 11970),
-        ]
 
         pos_parts = []
         rng = np.random.default_rng(42)
         for lo, hi, k in bucket_specs:
             def in_bucket(ex, lo=lo, hi=hi):
-                v = float(ex["qwen3-vl-8b-cot_model_iou"])
+                v = float(ex[iou_key])
                 return (v >= lo) and (v < hi)
 
             ds_bucket = ds_pos.filter(in_bucket, num_proc=num_workers)
             n_bucket = ds_bucket.num_rows
             take = min(k, n_bucket)
             if take == 0:
-                print(f"[pos bucket {lo:.1f}-{hi:.1f}) available=0, take=0")
+                print(f"[pos bucket {lo:.2f}-{hi:.2f}) available=0, take=0")
                 continue
             idx = rng.choice(n_bucket, size=take, replace=False)
             pos_parts.append(ds_bucket.select(sorted(idx)))
-            print(f"[pos bucket {lo:.1f}-{hi:.1f}) available={n_bucket}, take={take}")
+            print(f"[pos bucket {lo:.2f}-{hi:.2f}) available={n_bucket}, take={take}")
 
         if len(pos_parts) == 0:
             raise RuntimeError("No positive samples selected; check input stats.")
@@ -258,14 +304,14 @@ if __name__ == "__main__":
         print(f"[grounding preprocess] merged train size: {ds_train.num_rows}")
 
         ds_train = ds_train.map(
-            function=make_map_fn("train", fmt),
+            function=make_map_fn("train", fmt, iou_key),
             with_indices=True,
             num_proc=num_workers,
         )
         print(f"[grounding preprocess] train samples (final): {len(ds_train)}")
         out_train = os.path.join(
             output_dir,
-            "train_grounding_{}.parquet".format(fmt),
+            "train_grounding_qwen4bcot_80K_filter_641.parquet",
         )
         ds_train.to_parquet(out_train)
         print(f"[grounding preprocess] wrote {out_train}")
@@ -287,4 +333,3 @@ if __name__ == "__main__":
             print(f"[grounding preprocess] test samples: {len(mixed)}, wrote {out_test}")
         else:
             print("[grounding preprocess] no test samples produced")
-

@@ -7,15 +7,15 @@ else
     echo "PROJECT_NAME does not contain 'qwen'. No PYTHONPATH set."
 fi
 
-nohup python -m sglang.launch_server \
-  --model-path "$model_path" \
-  --host 0.0.0.0 --port 30000 \
-  --nnodes 1 --node-rank 0 \
-  --dp-size 8 \
-  --tp-size 1 \
-  --dtype auto \
-  --mem-fraction-static 0.8 \
-  > /var/log/sglang_node0.log 2>&1 &
+# nohup python -m sglang.launch_server \
+#   --model-path "$model_path" \
+#   --host 0.0.0.0 --port 30000 \
+#   --nnodes 1 --node-rank 0 \
+#   --dp-size 8 \
+#   --tp-size 1 \
+#   --dtype auto \
+#   --mem-fraction-static 0.8 \
+#   > /var/log/sglang_node0.log 2>&1 &
 
 echo "waiting endpoint..."
 
@@ -54,11 +54,11 @@ echo "Result dir: $result_dir"
 # data_name_list=( "refcoco_train_v4_gpt_10.26_withflip_2_RL" )
 # data_name_list=("refcoco-train-refbox-exclude-onlyflip" )refcoco-train-refbox-addflip570K_1103
 # data_name_list=("refcoco-train-refbox-addflip570K_1104_final2" )
-data_dir=grounding_sft_v1
+# data_dir=grounding_sft_v1
 # data_dir=grounding_cot_v3_train_rl
-# data_name_list=("amodal_eval_v5_10.22_eval_filtered_with_modal_bbox")
+data_name_list=("amodal_eval_v5_10.22_eval_filtered_with_modal_bbox")
 # data_name_list=("amodal_train_v5_filtered_val_with_modal_bbox")
-# data_dir=amodal_data/amodal_eval_v5
+data_dir=amodal_data/amodal_eval_v5
 # data_dir=amodal_data/amodal_val_v5
 for data_name in "${data_name_list[@]}"; do
     echo "Processing dataset: $data_name"
@@ -72,8 +72,8 @@ for data_name in "${data_name_list[@]}"; do
     --endpoint "http://127.0.0.1:30000" \
     --max_tokens 4096 \
     --concurrency 256 \
-    --prompt_template qwen3 \
-    --box_remap scale
+    --prompt_template amodal \
+    --box_remap keep
 
 done
 pkill -9 "sglang" -f
@@ -90,12 +90,12 @@ pkill -9 "sglang" -f
 #   --mem-fraction-static 0.7 \
 #   > /var/log/sglang_node1.log 2>&1 &
 
-nohup python -m sglang.launch_server \
-  --model-path  /storage/openpsi/models/qwen3-vl-2b-direct_box-sft\
-  --host 0.0.0.0 --port 30000 \
-  --nnodes 1 --node-rank 0 \
-  --dp-size 8 \
-  --tp-size 1 \
-  --dtype auto \
-  --mem-fraction-static 0.8 \
-  > /var/log/sglang_node0.log 2>&1 & 
+# nohup python -m sglang.launch_server \
+#   --model-path  /storage/openpsi/models/internvl3_2b_amodaling_rl/trial1_cot_global_step_460 \
+#   --host 0.0.0.0 --port 30000 \
+#   --nnodes 1 --node-rank 0 \
+#   --dp-size 8 \
+#   --tp-size 1 \
+#   --dtype auto \
+#   --mem-fraction-static 0.8 \
+#   > /var/log/sglang_node0.log 2>&1 & 

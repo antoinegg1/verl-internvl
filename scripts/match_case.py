@@ -7,11 +7,11 @@
 # 用法示例：
 '''
 python scripts/match_case.py \
---a  /storage/openpsi/data/grounding_sft_v1/refcoco-train-refbox-addflip570K_1105_1.jsonl  \
---b   /storage/openpsi/data/grounding_sft_v1_result/qwen3-vl-8b-direct_box_8B/refcoco-train-refbox-addflip570K_1104_final2_result  \
---out  /storage/openpsi/data/grounding_sft_v1/refcoco-train-refbox-addflip570K_1105_2.jsonl \
+--a  /storage/openpsi/data/grounding_sft_v1/refcoco-train-refbox-addflip570K_1108_final.jsonl \
+--b   /storage/openpsi/data/qwen_result/qwen3_8b_thinking_grounding_sft_4450itr_8B/refcoco-train-refbox-addflip570K_1107_result \
+--out  /storage/openpsi/data/grounding_sft_v1/refcoco-train-refbox-addflip570K_1109.jsonl \
 --sim_th 0.7 \
---new_key "qwen3-vl-8b-direct_box_model_iou"
+--new_key "qwen3_8b_thinking_model_iou"
 '''
 import argparse
 import json

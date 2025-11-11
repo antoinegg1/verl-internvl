@@ -13,14 +13,14 @@ rm -rf "${RAY_TMPDIR}"
 mkdir -p "${RAY_TMPDIR}"
 
 # 任务名
-export PROJECT_NAME="internvl3_2b_amodaling_rl"
+export PROJECT_NAME="qwen3_2b_grounding_rl"
 if echo "$PROJECT_NAME" | grep -q "qwen"; then
     export PYTHONPATH=/storage/openpsi/users/lichangye.lcy/sglang/python
     echo "PYTHONPATH set for qwen project."
 else
     echo "PROJECT_NAME does not contain 'qwen'. No PYTHONPATH set."
 fi
-TASK_NAME="trial1_cot"
+TASK_NAME="trial3_cot"
 echo "TASK_NAME: $TASK_NAME"
 echo "PROJECT_NAME: $PROJECT_NAME"
 unset ROCR_VISIBLE_DEVICES || true
@@ -80,11 +80,11 @@ use_dynamic_bsz=True
 ray job submit --address=${RAY_ADDRESS} \
     -- python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/storage/openpsi/data/amodal_data_preprocessed/train_amodal_v5.parquet  \
-    data.val_files=/storage/openpsi/data/amodal_data_preprocessed/val_amodal_v5.parquet \
+    data.train_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/train_grounding_qwen2bcot_110K.parquet  \
+    data.val_files=/storage/openpsi/data/grounding_sft_v1_preprocessed/test_grounding_qwen.parquet \
     data.train_batch_size=${ROLLOUT_BATCH_SIZE} \
-    data.max_prompt_length=28672 \
-    data.max_response_length=4096 \
+    data.max_prompt_length=16384\
+    data.max_response_length=2048 \
     data.filter_overlong_prompts=True \
     data.filter_overlong_prompts_workers=16 \
     data.truncation='error' \
@@ -97,32 +97,32 @@ ray job submit --address=${RAY_ADDRESS} \
     +custom_reward_function.reward_kwargs.reward_type=mix \
     +custom_reward_function.reward_kwargs.alpha=0.5 \
     +custom_reward_function.reward_kwargs.threshold=0.5 \
-    actor_rollout_ref.model.path=/storage/openpsi/models/amodal_model/amodal_2b_v15 \
+    actor_rollout_ref.model.path=/storage/openpsi/models/qwen3_2b_thinking_grounding_sft_4450itr \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.optim.lr=3e-6 \
     actor_rollout_ref.actor.optim.warmup_style=cosine \
     actor_rollout_ref.actor.optim.lr_warmup_steps=30 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
-    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=32768 \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=25600 \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.actor.ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${MICRO_TRAIN_BATCH_SIZE} \
-    actor_rollout_ref.actor.use_kl_loss=False \
-    actor_rollout_ref.actor.kl_loss_coef=0.0 \
+    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.kl_loss_coef=0.01 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.actor.entropy_coeff=0.01 \
+    actor_rollout_ref.actor.entropy_coeff=0.0 \
     actor_rollout_ref.actor.policy_loss.loss_mode=gspo \
-    actor_rollout_ref.model.enable_gradient_checkpointing=False \
+    actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=16 \
-    actor_rollout_ref.actor.fsdp_config.param_offload=False \
-    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.fsdp_config.param_offload=True \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=${SEQUENCE_PARALLEL} \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${MICRO_ROLLOUT_BATCH_SIZE} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${TENSOR_PARALLEL} \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.temperature=0.9 \
+    actor_rollout_ref.rollout.temperature=0.7 \
     actor_rollout_ref.rollout.top_p=0.9 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
@@ -130,7 +130,7 @@ ray job submit --address=${RAY_ADDRESS} \
     actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.rollout.n=${N_SAMPLES_PER_PROMPT} \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${MICRO_TRAIN_BATCH_SIZE} \
-    actor_rollout_ref.ref.fsdp_config.param_offload=False \
+    actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${SEQUENCE_PARALLEL} \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
@@ -145,11 +145,12 @@ ray job submit --address=${RAY_ADDRESS} \
     trainer.n_gpus_per_node=${NPROC_PER_NODE} \
     trainer.nnodes=${WORLD_SIZE} \
     trainer.save_freq=10 \
-    trainer.test_freq=5 \
+    trainer.test_freq=10 \
     trainer.val_before_train=True \
-    trainer.resume_mode=auto \
     trainer.rollout_data_dir=${OUTPUT_PATH}/rollouts \
-    trainer.total_epochs=5 2>&1 | tee ${JOBLOG}
+    trainer.total_epochs=3 2>&1 | tee ${JOBLOG}
 
   # trainer.resume_mode=resume_path \
   # trainer.resume_from_path=/storage/openpsi/models/internvl3_8b_grounding_rl/trial1_cot_v3/global_step_100 \
+    #   trainer.resume_mode=resume_path \
+    # trainer.resume_from_path=/storage/openpsi/models/qwen3_2b_grounding_rl/trial2_cot/global_step_60 \

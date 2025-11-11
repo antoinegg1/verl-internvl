@@ -4,6 +4,7 @@ from datasets import load_dataset
 from openai import AsyncOpenAI
 from tqdm import tqdm
 from PIL import Image
+import random
 
 def hash(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
@@ -101,18 +102,26 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
         {"type": "image_url", "image_url": {"url": to_data_url(path), "detail": "high"}},
         {"type": "text", "text": prompt},
     ]
-
+    # Qwen3:
+        #     temperature=0.7,
+        # top_p=0.8,
+        # presence_penalty=1.5,
+        # max_tokens=max_tokens,
+        # extra_body={
+        #     "top_k": 20,              
+        #     "repetition_penalty": 1.0 
+        # },
     t0 = time.perf_counter()
     resp = await client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": content}],
-        temperature=0.7,
-        top_p=0.8,
-        presence_penalty=1.5,
+        temperature=0.0,
+        top_p=1.0,
+        presence_penalty=0.0,
         max_tokens=max_tokens,
         extra_body={
             "top_k": 20,              
-            "repetition_penalty": 1.0 
+            "repetition_penalty": 1.0,
         },
     )
     t1 = time.perf_counter()
@@ -136,8 +145,17 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
 
     scaled_bbox = apply_remap(bbox, w, h, REMAP_MODE) if bbox is not None else None
     iou = compute_iou(scaled_bbox, gt_bbox) if scaled_bbox is not None else 0.0
+    result = {
+        "generation": txt,
+        "scaled_bbox": scaled_bbox,
+        "iou": iou,
+        "latency_s": latency_s,
+        "response_tokens": token_count,
+    }
 
-    return {"generation": txt, "scaled_bbox": scaled_bbox, "iou": iou, "latency_s": latency_s, "response_tokens": token_count}
+    if random.random() < 0.003:
+        print(result)
+    return result
 
 async def bounded_call(idx: int, rec: Dict[str, Any], sem: asyncio.Semaphore, client: AsyncOpenAI, model: str, max_tokens: int):
     async with sem:
@@ -194,7 +212,7 @@ async def main_async(args):
     else:
         global REMAP_MODE
         REMAP_MODE = args.box_remap
-
+    start_time = time.perf_counter()
     tasks = []
     for i in range(len(ds)):
         rec = {"image": ds[i]["image"], "sent": ds[i]["sent"], "bbox": ds[i]["bbox"], "height": ds[i]["height"], "width": ds[i]["width"]}
@@ -212,7 +230,8 @@ async def main_async(args):
         if tokens is not None: all_tokens.append(tokens)
         iou[idx] = out.get("iou"); pbar.update(1)
     pbar.close()
-
+    end_time = time.perf_counter() 
+    whole_time = end_time - start_time
     stats = summarize_ious(iou)
     mean_iou = stats["mean_iou"]; pass_rate = stats["pass_rate_05"]
     total_tokens = int(sum(x for x in all_tokens if x is not None)) if all_tokens else 0
@@ -226,6 +245,7 @@ async def main_async(args):
     print("mean_tokens", total_tokens / case_num if case_num > 0 else 0)
     print("mean_iou", mean_iou)
     print("pass_rate@0.5", pass_rate)
+    print("whole_time", whole_time)
 
     detail = {}
     for idx in range(len(ds)):
@@ -244,6 +264,7 @@ async def main_async(args):
         f.write(f"total_time_sec: {total_time:.3f}\n")
         f.write(f"total_tokens: {total_tokens}\n")
         f.write(f"case_number: {case_num}\n")
+        f.write(f"whole_time_sec: {whole_time:.3f}\n") 
 
     ds_out = (ds.add_column("generated_result", generations)
                 .add_column("scaled_bbox", scaled_bbox)
