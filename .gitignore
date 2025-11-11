@@ -19,6 +19,16 @@ tensorflow/my_graph/*
 # C extensions
 *.so
 
+.cloudide/
+.vscode/
+
+.github/
+
+.pre-commit-config.yaml
+.readthedocs.yaml
+.cloudide/
+.vscode/
+.github/
 # Distribution / packaging
 .Python
 env/

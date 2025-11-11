@@ -7,11 +7,11 @@
 # 用法示例：
 '''
 python scripts/match_case.py \
---a  /storage/openpsi/data/grounding_sft_v1/refcoco-train-refbox-exclude-onlyflip_1.jsonl \
---b  /storage/openpsi/data/grounding_sft_v1_result/internvl3_5_8b_v7_2_8B/stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part1_result /storage/openpsi/data/grounding_sft_v1_result/internvl3_5_8b_v7_2_8B/stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part2_result /storage/openpsi/data/grounding_sft_v1_result/internvl3_5_8b_v7_2_8B/stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part3_result /storage/openpsi/data/grounding_sft_v1_result/internvl3_5_8b_v7_2_8B/stage2_thinking_with_text_sft_train_10.23_241b_iou_added_withflip_part4_result \
---out  /storage/openpsi/data/grounding_sft_v1/refcoco-train-refbox-exclude-onlyflip_1103.jsonl \
+--a  /storage/openpsi/data/grounding_sft_v1/refcoco-train-refbox-addflip570K_1108_final.jsonl \
+--b   /storage/openpsi/data/qwen_result/qwen3_8b_thinking_grounding_sft_4450itr_8B/refcoco-train-refbox-addflip570K_1107_result \
+--out  /storage/openpsi/data/grounding_sft_v1/refcoco-train-refbox-addflip570K_1109.jsonl \
 --sim_th 0.7 \
---new_key "8b_v7_model_iou"
+--new_key "qwen3_8b_thinking_model_iou"
 '''
 import argparse
 import json
