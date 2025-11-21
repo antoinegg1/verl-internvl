@@ -2,11 +2,11 @@
 set -euo pipefail
 model_path="${your_model_path}"
 export BASE_IMAGE_DIR="${your_base_image_dir}"
-prompt_template=qwen3
-box_remap=keep
-model_name="$(basename "$model_path")"
 data_json="${your_data_json}"
 output_dir="${your_output_dir}"
+prompt_template=qwen3
+box_remap=keep
+
 echo "model: $model_path"
 
 
@@ -28,8 +28,6 @@ until curl -sf http://127.0.0.1:8000/v1/models > /dev/null; do
   sleep 2
 done
 echo "endpoint ready"
-
-
 
 python scripts/vllm_infer.py \
     --model "$model_path" \
