@@ -10,8 +10,8 @@ HF_ENDPOINT=https://hf-mirror.com nohup python -m vllm.entrypoints.openai.api_se
   --host 0.0.0.0 \
   --trust-remote-code \
   --port 8000 \
-  --data-parallel-size 8 \
-  --tensor-parallel-size 1 \
+  --data-parallel-size 1 \
+  --tensor-parallel-size 8 \
   --dtype auto \
   --gpu-memory-utilization 0.9 \
   > /var/log/vllm_api.log 2>&1 &
@@ -27,7 +27,7 @@ echo "endpoint ready"
 export BASE_IMAGE_DIR="${BASE_IMAGE_DIR:-/storage/openpsi/data}"
 
 prompt_template=qwen3
-box_remap=scale
+box_remap=keep
 model_name="$(basename "$model_path")"
 
 if [[ "$model_path" == *"amodal"* ]]; then

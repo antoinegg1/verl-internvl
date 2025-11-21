@@ -88,8 +88,8 @@ def compute_iou(boxA, boxB):
     return inter_area / denom
 
 async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tokens: int) -> Dict[str, Any]:
-    base_image_dir = os.getenv("BASE_IMAGE_DIR", "/storage/openpsi/data")
-    rec_path = rec["image"].replace("data","").replace("lustre/fsw/portfolios/nvr/users/yunhaof/sets","").replace("lustre/fsw/portfolios/nvr/projects/nvr_elm_llm/users/gzhan","").lstrip("/")
+    base_image_dir = os.getenv("BASE_IMAGE_DIR")
+    rec_path = rec["image"].lstrip("/")
     path = os.path.join(base_image_dir, rec_path)
     with Image.open(path) as img:
         w, h = img.size
@@ -102,15 +102,7 @@ async def call_one(client: AsyncOpenAI, model: str, rec: Dict[str, Any], max_tok
         {"type": "image_url", "image_url": {"url": to_data_url(path), "detail": "high"}},
         {"type": "text", "text": prompt},
     ]
-    # Qwen3:
-        #     temperature=0.7,
-        # top_p=0.8,
-        # presence_penalty=1.5,
-        # max_tokens=max_tokens,
-        # extra_body={
-        #     "top_k": 20,              
-        #     "repetition_penalty": 1.0 
-        # },
+
     t0 = time.perf_counter()
     resp = await client.chat.completions.create(
         model=model,
