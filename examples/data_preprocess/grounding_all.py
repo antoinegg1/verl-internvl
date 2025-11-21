@@ -125,7 +125,6 @@ if __name__ == "__main__":
 
     num_workers = int(args.num_workers)
     fmt = args.format
-    iou_key = args.iou_key
 
     ds_all = datasets.load_dataset("json", data_files=input_json)["train"]
 
