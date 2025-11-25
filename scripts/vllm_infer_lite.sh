@@ -15,8 +15,8 @@ nohup python -m vllm.entrypoints.openai.api_server \
   --host 0.0.0.0 \
   --trust-remote-code \
   --port 8000 \
-  --data-parallel-size 1 \
-  --tensor-parallel-size 8 \
+  --data-parallel-size 8 \
+  --tensor-parallel-size 1 \
   --dtype auto \
   --gpu-memory-utilization 0.9 \
   > /var/log/vllm_api.log 2>&1 &
