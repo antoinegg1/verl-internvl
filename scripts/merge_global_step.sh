@@ -2,16 +2,13 @@
 steps=(260 400 450)
 
 # 固定不变的参数
-REF_1B="/storage/openpsi/models/InternVL3-1B"
-REF_8B="/storage/openpsi/models/InternVL3-8B"
-REF_2B="/storage/openpsi/models/grounding_model/internvl3_2b_v5"
-REF_QWEN_2B="/storage/openpsi/models/qwen3-vl-2b-direct_box-sft"
-REF_QWEN_4B="/storage/openpsi/models/qwen3-vl-4b-direct_box-sft"
-REF_QWEN_8B="/storage/openpsi/models/qwen3-vl-8b-direct_box"
-REF=${REF_QWEN_4B}
+REF_1B="${your_InternVL3-1B_path}"
+REF_2B="${your_InternVL3-2B_path}"
+REF_8B="${your_InternVL3-8B_path}"
+REF=${REF_1B}
 
 for step in "${steps[@]}"; do
-  DST="/storage/openpsi/models/qwen3_4b_grounding_rl/trial2_cot_resume_global_step_${step}"
+  DST="${your_output_dir}"
   SRC="/storage/openpsi/models/qwen3_4b_grounding_rl/trial2_cot_resume/global_step_${step}/actor"
 
   # 只有当 REF 不包含 qwen 时才做 cp 到 SRC
