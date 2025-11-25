@@ -196,6 +196,8 @@ async def main_async(args):
         PROMPT_TEMPLATE = "Please provide the amodal bounding box coordinate of the region this sentence describes: <ref>{sent}</ref>"
     elif args.prompt_template.lower() == "qwen3":
         PROMPT_TEMPLATE = "Locate {sent}, output its bbox coordinates using JSON format"
+    elif args.prompt_template.lower() == "qwen3_amodal":
+        PROMPT_TEMPLATE = "Locate {sent} amodally, output its bbox coordinates using JSON format"
     else:
         raise ValueError(f"Unknown prompt_template: {args.prompt_template}")
 
